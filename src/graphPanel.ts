@@ -11,6 +11,8 @@ interface WebviewMessage {
   format?: string;
   data?: string;
   encoding?: "utf8" | "base64";
+  line?: number;
+  character?: number;
 }
 
 function nonce(): string {
@@ -113,7 +115,12 @@ export class GraphPanel implements vscode.Disposable {
       case "openFile":
         if (message.path && fs.existsSync(message.path)) {
           const document = await vscode.workspace.openTextDocument(vscode.Uri.file(message.path));
-          await vscode.window.showTextDocument(document, { preview: false });
+          const editor = await vscode.window.showTextDocument(document, { preview: false });
+          if (message.line !== undefined) {
+            const position = new vscode.Position(message.line, message.character ?? 0);
+            editor.selection = new vscode.Selection(position, position);
+            editor.revealRange(new vscode.Range(position, position), vscode.TextEditorRevealType.InCenterIfOutsideViewport);
+          }
         }
         break;
       case "refresh":
@@ -216,8 +223,10 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
 
   private render(): void {
     if (!this.view) return;
+    const itemLabel = this.graph?.metadata.graphType === "files" || !this.graph?.metadata.graphType ? "files" : "symbols";
+    const edgeLabel = this.graph?.metadata.graphType === "references" ? "references" : this.graph?.metadata.graphType === "call-hierarchy" ? "calls" : "dependencies";
     const summary = this.graph
-      ? `<p><strong>${this.graph.metadata.nodeCount}</strong> files<br><strong>${this.graph.metadata.edgeCount}</strong> dependencies<br><strong>${this.graph.problems.length}</strong> problems</p><p class="muted">${this.graph.metadata.mode} analysis<br>${this.graph.metadata.root}</p>`
+      ? `<p><strong>${this.graph.metadata.nodeCount}</strong> ${itemLabel}<br><strong>${this.graph.metadata.edgeCount}</strong> ${edgeLabel}<br><strong>${this.graph.problems.length}</strong> problems</p><p class="muted">${this.graph.metadata.mode} analysis<br>${this.graph.metadata.root}</p>`
       : "<p>No dependency graph has been generated in this session.</p>";
     this.view.webview.html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>
 body{font-family:var(--vscode-font-family);color:var(--vscode-foreground);padding:12px}button{display:block;width:100%;margin:8px 0;padding:7px;background:var(--vscode-button-background);color:var(--vscode-button-foreground);border:0}.muted{opacity:.7;word-break:break-all}

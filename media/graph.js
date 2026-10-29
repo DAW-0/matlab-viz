@@ -194,7 +194,9 @@
     const query = search.value.trim().toLowerCase();
     for (const edge of data.edges) drawEdge(edge);
     for (const node of data.nodes) drawNode(node, query);
-    summary.textContent = `${data.nodes.length}/${graph.nodes.length} files · ${data.edges.length}/${graph.edges.length} dependencies · ${graph.products.length} product references · ${graph.problems.length} problems · ${graph.metadata.mode} · ${graph.metadata.durationSeconds.toFixed(1)} s`;
+    const itemLabel = graph.metadata.graphType === "files" || !graph.metadata.graphType ? "files" : "symbols";
+    const edgeLabel = graph.metadata.graphType === "references" ? "references" : graph.metadata.graphType === "call-hierarchy" ? "calls" : "dependencies";
+    summary.textContent = `${data.nodes.length}/${graph.nodes.length} ${itemLabel} · ${data.edges.length}/${graph.edges.length} ${edgeLabel} · ${graph.products.length} product references · ${graph.problems.length} problems · ${graph.metadata.mode} · ${graph.metadata.durationSeconds.toFixed(1)} s`;
   }
 
   function drawEdge(edge) {
@@ -226,7 +228,7 @@
     text.textContent = label.length > 44 ? `…${label.slice(-43)}` : label;
     group.appendChild(text);
     group.addEventListener("click", (event) => { event.stopPropagation(); selectedId = node.id; showNode(node); render(); });
-    group.addEventListener("dblclick", (event) => { event.stopPropagation(); vscode.postMessage({ type: "openFile", path: node.path }); });
+    group.addEventListener("dblclick", (event) => { event.stopPropagation(); vscode.postMessage({ type: "openFile", path: node.path, line: node.line, character: node.character }); });
     group.addEventListener("pointerdown", (event) => { event.stopPropagation(); dragging = { id: node.id, start: screenToWorld(event.clientX, event.clientY) }; group.setPointerCapture(event.pointerId); });
     group.addEventListener("pointermove", (event) => {
       if (!dragging || dragging.id !== node.id) return;
@@ -243,7 +245,11 @@
     details.replaceChildren();
     const heading = document.createElement("h2"); heading.textContent = node.label; details.appendChild(heading);
     const list = document.createElement("dl");
-    for (const [name, value] of [["Path", node.path], ["Type", node.kind], ["External", node.external ? "Yes" : "No"], ["Missing", node.missing ? "Yes" : "No"]]) {
+    const fields = [["Path", node.path], ["Type", node.kind]];
+    if (node.line !== undefined) fields.push(["Line", String(node.line + 1)]);
+    if (node.containerName) fields.push(["Container", node.containerName]);
+    fields.push(["External", node.external ? "Yes" : "No"], ["Missing", node.missing ? "Yes" : "No"]);
+    for (const [name, value] of fields) {
       const term = document.createElement("dt"); term.textContent = name;
       const description = document.createElement("dd"); description.textContent = value;
       list.append(term, description);
@@ -252,7 +258,7 @@
     const counts = document.createElement("p");
     counts.textContent = `${graph.edges.filter((edge) => edge.source === node.id).length} dependencies · ${graph.edges.filter((edge) => edge.target === node.id).length} impacted files`;
     details.appendChild(counts);
-    const button = document.createElement("button"); button.textContent = "Open file"; button.addEventListener("click", () => vscode.postMessage({ type: "openFile", path: node.path })); details.appendChild(button);
+    const button = document.createElement("button"); button.textContent = node.line === undefined ? "Open file" : "Open symbol"; button.addEventListener("click", () => vscode.postMessage({ type: "openFile", path: node.path, line: node.line, character: node.character })); details.appendChild(button);
   }
 
   function showEdge(edge) {
@@ -317,7 +323,13 @@
   window.addEventListener("resize", fit);
   window.addEventListener("message", (event) => {
     if (event.data.type === "setGraph") {
-      graph = event.data.graph; positions = new Map(); selectedId = undefined; layout.value = event.data.defaultLayout || "force"; render(true); requestAnimationFrame(fit);
+      graph = event.data.graph; positions = new Map(); selectedId = undefined;
+      const functionGraph = graph.metadata.graphType === "call-hierarchy";
+      direction.options[1].textContent = functionGraph ? "Callees" : "Dependencies";
+      direction.options[2].textContent = functionGraph ? "Callers" : "Impact";
+      search.placeholder = graph.metadata.graphType === "files" || !graph.metadata.graphType ? "Search files…" : "Search symbols…";
+      layout.value = functionGraph ? "hierarchical" : event.data.defaultLayout || "force";
+      render(true); requestAnimationFrame(fit);
     } else if (event.data.type === "requestExport") exportVisual(event.data.format);
   });
   vscode.postMessage({ type: "ready" });

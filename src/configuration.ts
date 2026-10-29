@@ -18,3 +18,18 @@ export function readAnalysisOptions(): AnalysisOptions {
 export function defaultLayout(): string {
   return vscode.workspace.getConfiguration("matlabViz").get("defaultLayout", "force");
 }
+
+export interface SymbolAnalysisOptions {
+  maximumDepth: number;
+  maximumNodes: number;
+  includeExternal: boolean;
+}
+
+export function readSymbolAnalysisOptions(): SymbolAnalysisOptions {
+  const config = vscode.workspace.getConfiguration("matlabViz");
+  return {
+    maximumDepth: config.get("symbols.maximumDepth", 3),
+    maximumNodes: config.get("symbols.maximumNodes", 250),
+    includeExternal: config.get("includeExternal", false)
+  };
+}

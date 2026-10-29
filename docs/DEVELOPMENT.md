@@ -28,7 +28,7 @@ npm run package
 The package script type-checks and bundles the extension before invoking `vsce`. Install the resulting VSIX with:
 
 ```powershell
-codium --install-extension .\matlab-viz-0.1.0.vsix
+codium --install-extension .\matlab-viz-0.2.0.vsix
 ```
 
 ## MATLAB-only validation

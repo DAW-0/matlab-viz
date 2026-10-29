@@ -9,6 +9,12 @@ export interface GraphNode {
   kind: string;
   external: boolean;
   missing: boolean;
+  line?: number;
+  character?: number;
+  endLine?: number;
+  endCharacter?: number;
+  symbolKind?: string;
+  containerName?: string;
 }
 
 export interface GraphEdge {
@@ -37,7 +43,9 @@ export interface GraphMetadata {
   schemaVersion: number;
   generatedAt: string;
   root: string;
-  mode: "project" | "folder";
+  mode: "project" | "folder" | "language-service";
+  graphType?: "files" | "call-hierarchy" | "references";
+  rootSymbol?: string;
   matlabVersion: string;
   durationSeconds: number;
   projectName?: string;

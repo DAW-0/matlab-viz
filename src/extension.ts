@@ -1,20 +1,23 @@
 import * as path from "node:path";
 import * as vscode from "vscode";
-import { readAnalysisOptions } from "./configuration";
+import { readAnalysisOptions, readSymbolAnalysisOptions } from "./configuration";
 import { GraphPanel, SidebarProvider } from "./graphPanel";
 import { runMatlabAnalysis } from "./matlabRunner";
 import type { DependencyGraph } from "./model";
+import { SymbolAnalyzer, type CallDirection } from "./symbolAnalyzer";
 
 class MatlabVizController implements vscode.Disposable {
   private readonly output = vscode.window.createOutputChannel("MATLAB Viz", { log: true });
   private readonly panel: GraphPanel;
   private readonly sidebar: SidebarProvider;
   private readonly status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 25);
+  private readonly symbolAnalyzer = new SymbolAnalyzer(this.output);
   private graph: DependencyGraph | undefined;
   private lastRoot: string | undefined;
   private running = false;
   private refreshTimer: NodeJS.Timeout | undefined;
   private watcher: vscode.FileSystemWatcher | undefined;
+  private lastSymbolAction: CallDirection | "references" | undefined;
 
   public constructor(private readonly context: vscode.ExtensionContext) {
     this.panel = new GraphPanel(context.extensionUri, () => this.refresh());
@@ -37,6 +40,10 @@ class MatlabVizController implements vscode.Disposable {
       vscode.commands.registerCommand("matlabViz.exportGraph", () => this.panel.exportGraph()),
       vscode.commands.registerCommand("matlabViz.openLogs", () => this.output.show()),
       vscode.commands.registerCommand("matlabViz.configureMatlab", () => this.configureMatlab()),
+      vscode.commands.registerCommand("matlabViz.showCallHierarchy", () => this.analyzeCallHierarchy("both")),
+      vscode.commands.registerCommand("matlabViz.showCallers", () => this.analyzeCallHierarchy("incoming")),
+      vscode.commands.registerCommand("matlabViz.showCallees", () => this.analyzeCallHierarchy("outgoing")),
+      vscode.commands.registerCommand("matlabViz.traceSymbolReferences", () => this.analyzeSymbolReferences()),
       vscode.workspace.onDidChangeConfiguration((event) => {
         if (event.affectsConfiguration("matlabViz.watchFiles")) this.configureWatcher();
       })
@@ -58,6 +65,7 @@ class MatlabVizController implements vscode.Disposable {
     const root = await this.resolveRoot(resource);
     if (!root) return;
     this.lastRoot = root;
+    this.lastSymbolAction = undefined;
     this.running = true;
     this.status.text = "$(loading~spin) MATLAB Viz analyzing";
     try {
@@ -100,6 +108,14 @@ class MatlabVizController implements vscode.Disposable {
   }
 
   public async refresh(): Promise<void> {
+    if (this.lastSymbolAction === "references") {
+      await this.analyzeSymbolReferences();
+      return;
+    }
+    if (this.lastSymbolAction) {
+      await this.analyzeCallHierarchy(this.lastSymbolAction);
+      return;
+    }
     if (this.lastRoot) {
       await this.analyze(vscode.Uri.file(this.lastRoot));
     } else {
@@ -113,6 +129,80 @@ class MatlabVizController implements vscode.Disposable {
     } else {
       void vscode.window.showInformationMessage("No MATLAB Viz graph is loaded. Analyze a workspace first.");
     }
+  }
+
+  private async analyzeCallHierarchy(direction: CallDirection): Promise<void> {
+    if (this.running) {
+      void vscode.window.showInformationMessage("A MATLAB Viz analysis is already running.");
+      return;
+    }
+    this.running = true;
+    this.lastSymbolAction = direction;
+    const label = direction === "both" ? "call hierarchy" : direction === "incoming" ? "callers" : "callees";
+    this.status.text = `$(loading~spin) MATLAB Viz ${label}`;
+    try {
+      await vscode.window.withProgress(
+        { location: vscode.ProgressLocation.Notification, title: `MATLAB Viz: tracing ${label}…`, cancellable: true },
+        async (_progress, token) => {
+          const graph = await this.symbolAnalyzer.analyzeCallHierarchy(direction, readSymbolAnalysisOptions(), token);
+          await this.acceptGraph(graph);
+        }
+      );
+    } catch (error) {
+      await this.handleAnalysisError(error, "function analysis");
+    } finally {
+      this.running = false;
+    }
+  }
+
+  private async analyzeSymbolReferences(): Promise<void> {
+    if (this.running) {
+      void vscode.window.showInformationMessage("A MATLAB Viz analysis is already running.");
+      return;
+    }
+    this.running = true;
+    this.lastSymbolAction = "references";
+    this.status.text = "$(loading~spin) MATLAB Viz references";
+    try {
+      await vscode.window.withProgress(
+        { location: vscode.ProgressLocation.Notification, title: "MATLAB Viz: tracing symbol references…", cancellable: true },
+        async (_progress, token) => {
+          const graph = await this.symbolAnalyzer.analyzeReferences(readSymbolAnalysisOptions(), token);
+          await this.acceptGraph(graph);
+        }
+      );
+    } catch (error) {
+      await this.handleAnalysisError(error, "symbol reference analysis");
+    } finally {
+      this.running = false;
+    }
+  }
+
+  private async acceptGraph(graph: DependencyGraph): Promise<void> {
+    this.graph = graph;
+    this.lastRoot = graph.metadata.root;
+    this.panel.setGraph(graph);
+    this.sidebar.setGraph(graph);
+    this.panel.show(graph);
+    await this.persistGraph(graph);
+    this.status.text = `$(type-hierarchy) ${graph.nodes.length} symbols · ${graph.edges.length} edges`;
+    if (graph.problems.length > 0) {
+      void vscode.window.showWarningMessage(
+        `MATLAB Viz generated the graph with ${graph.problems.length} analysis notice(s).`
+      );
+    }
+  }
+
+  private async handleAnalysisError(error: unknown, operation: string): Promise<void> {
+    if (error instanceof vscode.CancellationError) {
+      this.output.appendLine(`[MATLAB Viz] ${operation} cancelled.`);
+    } else {
+      const message = error instanceof Error ? error.message : String(error);
+      this.output.error(`${operation}: ${message}`);
+      const action = await vscode.window.showErrorMessage(`MATLAB Viz ${operation} failed: ${message}`, "Show Logs");
+      if (action === "Show Logs") this.output.show();
+    }
+    this.status.text = "$(type-hierarchy) MATLAB Viz";
   }
 
   private async resolveRoot(resource?: vscode.Uri): Promise<string | undefined> {

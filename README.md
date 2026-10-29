@@ -2,7 +2,7 @@
 
 MATLAB Viz is a MATLAB-first dependency explorer for VS Code and VSCodium. It runs MATLAB's documented dependency-analysis APIs locally, converts the results into a portable graph model, and presents that model as an interactive dependency and impact graph.
 
-> **Development status:** `0.1.0` is an initial, working development build. The MATLAB folder-analysis backend has been validated against a real 22-file subsystem. Project analysis and the packaged VSCodium experience are being validated next.
+> **Development status:** `0.2.0` is a working development build. MATLAB Project and folder backends are validated against a real 22-file subsystem. Function call-hierarchy and symbol-reference graphs use the installed MATLAB language service and a conservative MATLAB syntax fallback.
 
 ## Why MATLAB Viz?
 
@@ -29,6 +29,10 @@ The Project backend is the programmatic form of MATLAB's built-in Dependency Ana
 - Optional automatic refresh when supported files change.
 - Persistent last-graph cache and a dedicated MATLAB Viz output log.
 - Cancellable MATLAB analysis process.
+- Build a caller-and-callee graph for the MATLAB function under the cursor.
+- Trace only callers or only callees to a configurable depth.
+- Trace function or variable references and group each reference by its containing function or file.
+- Navigate directly from a function or symbol node to its source location.
 
 ## Requirements
 
@@ -37,7 +41,7 @@ The Project backend is the programmatic form of MATLAB's built-in Dependency Ana
 - MATLAB R2019a or newer for Project dependency APIs; newer releases expose more Dependency Analyzer options
 - Node.js LTS only for developing or packaging MATLAB Viz
 
-MATLAB Viz does not require the MATLAB language server. Your source code and dependency graph stay on your machine.
+File dependency graphs do not require the MATLAB language server. Function and symbol graphs require a MATLAB language extension that supplies Definition and References results in VSCodium. Your source code and dependency graph stay on your machine.
 
 ## Run from source
 
@@ -55,7 +59,7 @@ To create an installable package:
 
 ```powershell
 npm run package
-codium --install-extension matlab-viz-0.1.0.vsix
+codium --install-extension matlab-viz-0.2.0.vsix
 ```
 
 ## Commands
@@ -69,6 +73,10 @@ codium --install-extension matlab-viz-0.1.0.vsix
 | `MATLAB Viz: Export Graph` | Export JSON, DOT, CSV, SVG, or PNG. |
 | `MATLAB Viz: Configure MATLAB Executable` | Select the MATLAB executable explicitly. |
 | `MATLAB Viz: Show Logs` | Open the MATLAB process and analysis log. |
+| `MATLAB Viz: Show Function Call Hierarchy` | Show callers and callees for the function at the cursor. |
+| `MATLAB Viz: Show Callers` | Trace functions that call the function at the cursor. |
+| `MATLAB Viz: Show Callees` | Trace functions called by the function at the cursor. |
+| `MATLAB Viz: Trace Symbol References` | Trace references to the selected function or variable. |
 
 ## Important settings
 
@@ -84,6 +92,8 @@ codium --install-extension matlab-viz-0.1.0.vsix
 | `matlabViz.project.analyzeAddOns` | `false` | Analyze inside add-ons. |
 | `matlabViz.project.analyzeModelParameters` | `false` | Analyze MATLAB code in Simulink model parameters. |
 | `matlabViz.maximumFiles` | `5000` | Safety limit for a single folder analysis. |
+| `matlabViz.symbols.maximumDepth` | `3` | Caller/callee traversal depth. |
+| `matlabViz.symbols.maximumNodes` | `250` | Safety limit for function and reference graphs. |
 
 ## Graph semantics
 
@@ -94,10 +104,13 @@ An arrow `A → B` means that **A depends on B**. Consequently:
 
 The graph represents static dependencies, not execution order. Dynamic file names, `eval`, runtime dispatch, and dependency injection can be invisible to static analysis.
 
+For function graphs, `caller → callee` means the source function calls the target function. For reference graphs, `container → symbol` means a function or file contains one or more references to the selected symbol. Reference graphs identify locations; they do not claim to reconstruct runtime values or complete data flow.
+
 ## Documentation
 
 - [Architecture](docs/ARCHITECTURE.md)
 - [Dependency analysis](docs/DEPENDENCY_ANALYSIS.md)
+- [Function and symbol analysis](docs/SYMBOL_ANALYSIS.md)
 - [Development and testing](docs/DEVELOPMENT.md)
 - [Roadmap](docs/ROADMAP.md)
 - [Contributing](CONTRIBUTING.md)

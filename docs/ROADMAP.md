@@ -13,8 +13,12 @@
 
 ## 0.2 — richer MATLAB semantics
 
-- Function- and class-level symbols using MATLAB syntax information where supported
-- Edge introduction locations and editor line navigation
+- [x] Function-level caller and callee graphs using language-service definitions and references
+- [x] Function-handle and qualified-method call discovery
+- [x] Symbol-reference graphs grouped by containing function or file
+- [x] Source positions and editor line navigation
+- [ ] Class inheritance and property-type relationships
+- [ ] Read/write classification for variable references
 - MATLAB package, class-folder, namespace, and inheritance visualization
 - Simulink subsystem/model-reference metadata
 - Problems and required-products panes
