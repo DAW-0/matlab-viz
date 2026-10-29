@@ -1,6 +1,6 @@
 # Architecture
 
-MatlabViz is deliberately split into three boundaries so that MATLAB analysis, editor integration, and graph rendering can evolve independently.
+MATLAB Viz is deliberately split into three boundaries so that MATLAB analysis, editor integration, and graph rendering can evolve independently.
 
 ```text
 VS Code/VSCodium extension host

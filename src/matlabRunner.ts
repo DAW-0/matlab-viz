@@ -43,7 +43,7 @@ export async function findMatlabExecutable(): Promise<string> {
     }
   }
   throw new Error(
-    "MATLAB could not be found. Run ‘MatlabViz: Configure MATLAB Executable’ and select the MATLAB executable."
+    "MATLAB could not be found. Run ‘MATLAB Viz: Configure MATLAB Executable’ and select the MATLAB executable."
   );
 }
 
@@ -66,9 +66,9 @@ export async function runMatlabAnalysis(
     `fprintf('${MATLAB_MARKER}%s\\n',${matlabString(outputFile)})`
   ].join(";");
 
-  output.appendLine(`[MatlabViz] Executable: ${matlab}`);
-  output.appendLine(`[MatlabViz] Root: ${rootPath}`);
-  output.appendLine(`[MatlabViz] Backend request: ${options.mode}`);
+  output.appendLine(`[MATLAB Viz] Executable: ${matlab}`);
+  output.appendLine(`[MATLAB Viz] Root: ${rootPath}`);
+  output.appendLine(`[MATLAB Viz] Backend request: ${options.mode}`);
 
   return await new Promise<AnalysisResult>((resolve, reject) => {
     const child = spawn(matlab, ["-batch", command], {
@@ -79,7 +79,7 @@ export async function runMatlabAnalysis(
     let stdout = "";
     let stderr = "";
     const cancellation = token.onCancellationRequested(() => {
-      output.appendLine("[MatlabViz] Cancellation requested; stopping MATLAB.");
+      output.appendLine("[MATLAB Viz] Cancellation requested; stopping MATLAB.");
       child.kill();
     });
     child.stdout.on("data", (data: Buffer) => {
@@ -104,7 +104,7 @@ export async function runMatlabAnalysis(
           throw new vscode.CancellationError();
         }
         if (code !== 0) {
-          throw new Error(`MATLAB dependency analysis exited with code ${code}. See the MatlabViz output log.`);
+          throw new Error(`MATLAB dependency analysis exited with code ${code}. See the MATLAB Viz output log.`);
         }
         const raw = await fs.promises.readFile(outputFile, "utf8");
         const graph = validateGraph(JSON.parse(raw));

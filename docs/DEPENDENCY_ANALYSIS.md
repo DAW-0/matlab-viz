@@ -2,7 +2,7 @@
 
 ## MATLAB Project mode
 
-When the selected root contains a MATLAB Project, MatlabViz constructs a `matlab.project.Project`, calls `updateDependencies`, and exports `project.Dependencies`.
+When the selected root contains a MATLAB Project, MATLAB Viz loads the project, calls `updateDependencies`, and exports `project.Dependencies`.
 
 This is the preferred backend because the graph is maintained by MATLAB's Dependency Analyzer and can include relationships beyond MATLAB function calls, including Simulink models and project files. Configurable options cover:
 
@@ -11,11 +11,11 @@ This is the preferred backend because the graph is maintained by MATLAB's Depend
 - Add-ons
 - MATLAB code in model parameters
 
-`updateDependencies` requires a loaded project, so MatlabViz loads the project inside its isolated MATLAB batch process and closes it after exporting the graph. Loading a project can execute its configured startup tasks. Analyze only projects you trust.
+`updateDependencies` requires a loaded project, so MATLAB Viz loads the project inside its isolated MATLAB batch process and closes it after exporting the graph. Loading a project can execute its configured startup tasks. Analyze only projects you trust.
 
 ## Folder mode
 
-For an ordinary folder, MatlabViz discovers supported files and runs:
+For an ordinary folder, MATLAB Viz discovers supported files and runs:
 
 ```matlab
 [requiredFiles, requiredProducts] = ...
@@ -37,7 +37,7 @@ MATLAB documents important limitations in Dependency Analyzer and `requiredFiles
 - Some masked-block and support-package dependencies are not detected.
 - Static analysis can report unreachable code because it does not execute conditions.
 
-MatlabViz shows the graph MATLAB reports. It does not manufacture inferred edges. A future manual-edge layer is planned for architectural relationships that static analysis cannot prove.
+MATLAB Viz shows the graph MATLAB reports. It does not manufacture inferred edges. A future manual-edge layer is planned for architectural relationships that static analysis cannot prove.
 
 ## Direction
 

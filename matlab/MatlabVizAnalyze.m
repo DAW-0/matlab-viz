@@ -1,6 +1,6 @@
 function MatlabVizAnalyze(rootPath, outputPath, optionsPath)
-%MATLABVIZANALYZE Export MATLAB/Simulink dependencies as MatlabViz JSON.
-%   This function is an internal bridge used by the MatlabViz VS Code
+%MATLABVIZANALYZE Export MATLAB/Simulink dependencies as MATLAB Viz JSON.
+%   This function is an internal bridge used by the MATLAB Viz VS Code
 %   extension. For MATLAB Projects it calls updateDependencies and exports
 %   the project's Dependencies digraph. For ordinary folders it reconstructs
 %   direct edges with matlab.codetools.requiredFilesAndProducts(...,'toponly').
@@ -28,7 +28,7 @@ elseif mode == "project" && ~projectDetected
         "Project analysis was requested, but no MATLAB Project was found at %s.", rootPath);
 end
 
-fprintf("MatlabViz: using %s dependency analysis for %s\n", mode, rootPath);
+fprintf("MATLAB Viz: using %s dependency analysis for %s\n", mode, rootPath);
 if mode == "project"
     [nodes, edges, products, problems, projectName] = analyzeProject(rootPath, options);
 else
@@ -64,7 +64,7 @@ if fileId < 0
 end
 cleanup = onCleanup(@() fclose(fileId));
 fwrite(fileId, jsonencode(document), "char");
-fprintf("MatlabViz: exported %d nodes and %d edges to %s\n", numel(nodes), numel(edges), outputPath);
+fprintf("MATLAB Viz: exported %d nodes and %d edges to %s\n", numel(nodes), numel(edges), outputPath);
 end
 
 function [nodes, edges, products, problems, projectName] = analyzeProject(rootPath, options)

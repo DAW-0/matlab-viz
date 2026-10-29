@@ -1,17 +1,17 @@
 {
   "name": "matlab-viz",
-  "displayName": "MatlabViz",
+  "displayName": "MATLAB Viz",
   "description": "Interactive MATLAB and Simulink dependency graphs powered by MATLAB's native dependency analysis.",
   "version": "0.1.0",
   "publisher": "daw-0",
   "private": true,
   "repository": {
     "type": "git",
-    "url": "https://github.com/DAW-0/MatlabViz.git"
+    "url": "https://github.com/DAW-0/matlab-viz.git"
   },
-  "homepage": "https://github.com/DAW-0/MatlabViz#readme",
+  "homepage": "https://github.com/DAW-0/matlab-viz#readme",
   "bugs": {
-    "url": "https://github.com/DAW-0/MatlabViz/issues"
+    "url": "https://github.com/DAW-0/matlab-viz/issues"
   },
   "engines": {
     "vscode": "^1.95.0"
@@ -43,33 +43,33 @@
     "commands": [
       {
         "command": "matlabViz.analyzeWorkspace",
-        "title": "MatlabViz: Analyze Workspace"
+        "title": "MATLAB Viz: Analyze Workspace"
       },
       {
         "command": "matlabViz.analyzeSelection",
-        "title": "MatlabViz: Analyze Selected File or Folder"
+        "title": "MATLAB Viz: Analyze Selected File or Folder"
       },
       {
         "command": "matlabViz.refresh",
-        "title": "MatlabViz: Refresh Dependency Graph",
+        "title": "MATLAB Viz: Refresh Dependency Graph",
         "icon": "$(refresh)"
       },
       {
         "command": "matlabViz.showGraph",
-        "title": "MatlabViz: Show Dependency Graph",
+        "title": "MATLAB Viz: Show Dependency Graph",
         "icon": "$(type-hierarchy)"
       },
       {
         "command": "matlabViz.exportGraph",
-        "title": "MatlabViz: Export Graph"
+        "title": "MATLAB Viz: Export Graph"
       },
       {
         "command": "matlabViz.openLogs",
-        "title": "MatlabViz: Show Logs"
+        "title": "MATLAB Viz: Show Logs"
       },
       {
         "command": "matlabViz.configureMatlab",
-        "title": "MatlabViz: Configure MATLAB Executable"
+        "title": "MATLAB Viz: Configure MATLAB Executable"
       }
     ],
     "menus": {
@@ -97,7 +97,7 @@
       "activitybar": [
         {
           "id": "matlabViz",
-          "title": "MatlabViz",
+          "title": "MATLAB Viz",
           "icon": "media/icon.svg"
         }
       ]
@@ -112,7 +112,7 @@
       ]
     },
     "configuration": {
-      "title": "MatlabViz",
+      "title": "MATLAB Viz",
       "properties": {
         "matlabViz.matlabExecutable": {
           "type": "string",

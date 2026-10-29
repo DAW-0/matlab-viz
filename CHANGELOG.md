@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to MatlabViz will be documented here.
+All notable changes to MATLAB Viz will be documented here.
 
 ## [Unreleased]
 

@@ -38,7 +38,7 @@ export class GraphPanel implements vscode.Disposable {
     if (!this.panel) {
       this.panel = vscode.window.createWebviewPanel(
         "matlabViz.graph",
-        "MatlabViz Dependency Graph",
+        "MATLAB Viz Dependency Graph",
         vscode.ViewColumn.One,
         {
           enableScripts: true,
@@ -65,7 +65,7 @@ export class GraphPanel implements vscode.Disposable {
 
   public async exportGraph(): Promise<void> {
     if (!this.graph) {
-      void vscode.window.showInformationMessage("Run a MatlabViz analysis before exporting a graph.");
+      void vscode.window.showInformationMessage("Run a MATLAB Viz analysis before exporting a graph.");
       return;
     }
     const format = await vscode.window.showQuickPick(
@@ -76,7 +76,7 @@ export class GraphPanel implements vscode.Disposable {
         { label: "SVG", description: "Current visual view", extension: "svg", visual: true },
         { label: "PNG", description: "Current visual view", extension: "png", visual: true }
       ],
-      { title: "Export MatlabViz graph" }
+      { title: "Export MATLAB Viz graph" }
     );
     if (!format) {
       return;
@@ -142,7 +142,7 @@ export class GraphPanel implements vscode.Disposable {
     }
     const buffer = Buffer.from(content.replace(/^data:image\/png;base64,/, ""), encoding);
     await vscode.workspace.fs.writeFile(uri, buffer);
-    void vscode.window.showInformationMessage(`MatlabViz exported ${path.basename(uri.fsPath)}.`);
+    void vscode.window.showInformationMessage(`MATLAB Viz exported ${path.basename(uri.fsPath)}.`);
   }
 
   private html(webview: vscode.Webview): string {
@@ -156,7 +156,7 @@ export class GraphPanel implements vscode.Disposable {
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${webview.cspSource} data:; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${token}';">
   <link rel="stylesheet" href="${style}">
-  <title>MatlabViz</title>
+  <title>MATLAB Viz</title>
 </head>
 <body>
   <header id="toolbar">

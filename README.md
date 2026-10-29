@@ -1,12 +1,12 @@
-# MatlabViz
+# MATLAB Viz
 
-MatlabViz is a MATLAB-first dependency explorer for VS Code and VSCodium. It runs MATLAB's documented dependency-analysis APIs locally, converts the results into a portable graph model, and presents that model as an interactive dependency and impact graph.
+MATLAB Viz is a MATLAB-first dependency explorer for VS Code and VSCodium. It runs MATLAB's documented dependency-analysis APIs locally, converts the results into a portable graph model, and presents that model as an interactive dependency and impact graph.
 
 > **Development status:** `0.1.0` is an initial, working development build. The MATLAB folder-analysis backend has been validated against a real 22-file subsystem. Project analysis and the packaged VSCodium experience are being validated next.
 
-## Why MatlabViz?
+## Why MATLAB Viz?
 
-General-purpose code-graph extensions usually depend on the Language Server Protocol call-hierarchy API. The MATLAB language server does not currently provide the call hierarchy needed by those extensions. MatlabViz uses MATLAB itself instead:
+General-purpose code-graph extensions usually depend on the Language Server Protocol call-hierarchy API. The MATLAB language server does not currently provide the call hierarchy needed by those extensions. MATLAB Viz uses MATLAB itself instead:
 
 - MATLAB Projects: `updateDependencies(project)` followed by `project.Dependencies`
 - Ordinary folders: `matlab.codetools.requiredFilesAndProducts(file,"toponly")`
@@ -27,7 +27,7 @@ The Project backend is the programmatic form of MATLAB's built-in Dependency Ana
 - List required MathWorks products discovered by folder analysis.
 - Export the graph as JSON, Graphviz DOT, CSV, SVG, or PNG.
 - Optional automatic refresh when supported files change.
-- Persistent last-graph cache and a dedicated MatlabViz output log.
+- Persistent last-graph cache and a dedicated MATLAB Viz output log.
 - Cancellable MATLAB analysis process.
 
 ## Requirements
@@ -35,21 +35,21 @@ The Project backend is the programmatic form of MATLAB's built-in Dependency Ana
 - VS Code or VSCodium 1.95 or newer
 - MATLAB available locally
 - MATLAB R2019a or newer for Project dependency APIs; newer releases expose more Dependency Analyzer options
-- Node.js LTS only for developing or packaging MatlabViz
+- Node.js LTS only for developing or packaging MATLAB Viz
 
-MatlabViz does not require the MATLAB language server. Your source code and dependency graph stay on your machine.
+MATLAB Viz does not require the MATLAB language server. Your source code and dependency graph stay on your machine.
 
 ## Run from source
 
 ```powershell
-git clone https://github.com/DAW-0/MatlabViz.git
-cd MatlabViz
+git clone https://github.com/DAW-0/matlab-viz.git
+cd matlab-viz
 npm install
 npm run check
 npm run build
 ```
 
-Open the folder in VSCodium and press `F5` to start an Extension Development Host. In that window, open a MATLAB repository and run **MatlabViz: Analyze Workspace**.
+Open the folder in VSCodium and press `F5` to start an Extension Development Host. In that window, open a MATLAB repository and run **MATLAB Viz: Analyze Workspace**.
 
 To create an installable package:
 
@@ -62,13 +62,13 @@ codium --install-extension matlab-viz-0.1.0.vsix
 
 | Command | Purpose |
 |---|---|
-| `MatlabViz: Analyze Workspace` | Analyze a selected workspace root. |
-| `MatlabViz: Analyze Selected File or Folder` | Analyze a folder, or the containing folder of a selected file. |
-| `MatlabViz: Refresh Dependency Graph` | Rerun the previous analysis. |
-| `MatlabViz: Show Dependency Graph` | Reopen the current interactive graph. |
-| `MatlabViz: Export Graph` | Export JSON, DOT, CSV, SVG, or PNG. |
-| `MatlabViz: Configure MATLAB Executable` | Select the MATLAB executable explicitly. |
-| `MatlabViz: Show Logs` | Open the MATLAB process and analysis log. |
+| `MATLAB Viz: Analyze Workspace` | Analyze a selected workspace root. |
+| `MATLAB Viz: Analyze Selected File or Folder` | Analyze a folder, or the containing folder of a selected file. |
+| `MATLAB Viz: Refresh Dependency Graph` | Rerun the previous analysis. |
+| `MATLAB Viz: Show Dependency Graph` | Reopen the current interactive graph. |
+| `MATLAB Viz: Export Graph` | Export JSON, DOT, CSV, SVG, or PNG. |
+| `MATLAB Viz: Configure MATLAB Executable` | Select the MATLAB executable explicitly. |
+| `MATLAB Viz: Show Logs` | Open the MATLAB process and analysis log. |
 
 ## Important settings
 
@@ -105,7 +105,7 @@ The graph represents static dependencies, not execution order. Dynamic file name
 
 ## Privacy
 
-MatlabViz starts the local MATLAB executable, reads the resulting JSON file, and renders it locally. It does not upload source files, paths, graphs, or telemetry.
+MATLAB Viz starts the local MATLAB executable, reads the resulting JSON file, and renders it locally. It does not upload source files, paths, graphs, or telemetry.
 
 ## License
 

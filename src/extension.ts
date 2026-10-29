@@ -6,7 +6,7 @@ import { runMatlabAnalysis } from "./matlabRunner";
 import type { DependencyGraph } from "./model";
 
 class MatlabVizController implements vscode.Disposable {
-  private readonly output = vscode.window.createOutputChannel("MatlabViz", { log: true });
+  private readonly output = vscode.window.createOutputChannel("MATLAB Viz", { log: true });
   private readonly panel: GraphPanel;
   private readonly sidebar: SidebarProvider;
   private readonly status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 25);
@@ -20,8 +20,8 @@ class MatlabVizController implements vscode.Disposable {
     this.panel = new GraphPanel(context.extensionUri, () => this.refresh());
     this.sidebar = new SidebarProvider(() => this.analyze(), () => this.showGraph(), () => this.refresh());
     this.status.command = "matlabViz.showGraph";
-    this.status.tooltip = "Show the MatlabViz dependency graph";
-    this.status.text = "$(type-hierarchy) MatlabViz";
+    this.status.tooltip = "Show the MATLAB Viz dependency graph";
+    this.status.text = "$(type-hierarchy) MATLAB Viz";
     this.status.show();
 
     context.subscriptions.push(
@@ -52,19 +52,19 @@ class MatlabVizController implements vscode.Disposable {
 
   public async analyze(resource?: vscode.Uri): Promise<void> {
     if (this.running) {
-      void vscode.window.showInformationMessage("A MatlabViz analysis is already running.");
+      void vscode.window.showInformationMessage("A MATLAB Viz analysis is already running.");
       return;
     }
     const root = await this.resolveRoot(resource);
     if (!root) return;
     this.lastRoot = root;
     this.running = true;
-    this.status.text = "$(loading~spin) MatlabViz analyzing";
+    this.status.text = "$(loading~spin) MATLAB Viz analyzing";
     try {
       await vscode.window.withProgress(
         {
           location: vscode.ProgressLocation.Notification,
-          title: `MatlabViz: analyzing ${path.basename(root)}`,
+          title: `MATLAB Viz: analyzing ${path.basename(root)}`,
           cancellable: true
         },
         async (progress, token) => {
@@ -79,21 +79,21 @@ class MatlabVizController implements vscode.Disposable {
           this.status.text = `$(type-hierarchy) ${result.graph.nodes.length} files · ${result.graph.edges.length} edges`;
           if (result.graph.problems.length > 0) {
             void vscode.window.showWarningMessage(
-              `MatlabViz generated the graph with ${result.graph.problems.length} analysis problem(s).`
+              `MATLAB Viz generated the graph with ${result.graph.problems.length} analysis problem(s).`
             );
           }
         }
       );
     } catch (error) {
       if (error instanceof vscode.CancellationError) {
-        this.output.appendLine("[MatlabViz] Analysis cancelled.");
+        this.output.appendLine("[MATLAB Viz] Analysis cancelled.");
       } else {
         const message = error instanceof Error ? error.message : String(error);
         this.output.error(message);
-        const action = await vscode.window.showErrorMessage(`MatlabViz analysis failed: ${message}`, "Show Logs");
+        const action = await vscode.window.showErrorMessage(`MATLAB Viz analysis failed: ${message}`, "Show Logs");
         if (action === "Show Logs") this.output.show();
       }
-      this.status.text = "$(type-hierarchy) MatlabViz";
+      this.status.text = "$(type-hierarchy) MATLAB Viz";
     } finally {
       this.running = false;
     }
@@ -111,7 +111,7 @@ class MatlabVizController implements vscode.Disposable {
     if (this.graph) {
       this.panel.show(this.graph);
     } else {
-      void vscode.window.showInformationMessage("No MatlabViz graph is loaded. Analyze a workspace first.");
+      void vscode.window.showInformationMessage("No MATLAB Viz graph is loaded. Analyze a workspace first.");
     }
   }
 
@@ -147,7 +147,7 @@ class MatlabVizController implements vscode.Disposable {
         selected[0].fsPath,
         vscode.ConfigurationTarget.Global
       );
-      void vscode.window.showInformationMessage(`MatlabViz will use ${selected[0].fsPath}.`);
+      void vscode.window.showInformationMessage(`MATLAB Viz will use ${selected[0].fsPath}.`);
     }
   }
 
