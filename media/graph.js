@@ -318,13 +318,14 @@
   layout.addEventListener("change", () => { calculateLayout(layout.value); render(); fit(); });
   for (const control of [direction, depth, external, isolated]) control.addEventListener("change", () => { render(); fit(); });
   document.getElementById("fit").addEventListener("click", fit);
-  document.getElementById("refresh").addEventListener("click", () => vscode.postMessage({ type: "refresh" }));
+  document.getElementById("refresh").addEventListener("click", () => vscode.postMessage({ type: "refresh", depth: Number(depth.value) || 3 }));
   document.getElementById("export").addEventListener("click", () => vscode.postMessage({ type: "export" }));
   window.addEventListener("resize", fit);
   window.addEventListener("message", (event) => {
     if (event.data.type === "setGraph") {
       graph = event.data.graph; positions = new Map(); selectedId = undefined;
       const functionGraph = graph.metadata.graphType === "call-hierarchy";
+      if (functionGraph && graph.metadata.analysisDepth) depth.value = String(graph.metadata.analysisDepth);
       direction.options[1].textContent = functionGraph ? "Callees" : "Dependencies";
       direction.options[2].textContent = functionGraph ? "Callers" : "Impact";
       search.placeholder = graph.metadata.graphType === "files" || !graph.metadata.graphType ? "Search files…" : "Search symbols…";

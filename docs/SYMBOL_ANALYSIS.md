@@ -22,6 +22,19 @@ Place the cursor inside a function or on a resolvable function name and run one 
 
 An edge points from caller to callee. Bidirectional mode independently walks incoming and outgoing relationships to `matlabViz.symbols.maximumDepth`, stopping at `matlabViz.symbols.maximumNodes`.
 
+The graph remembers its original function. Pressing **Refresh** therefore
+rebuilds the same hierarchy even when the graph webview has focus. The toolbar
+**Depth** value is passed back as the new traversal depth on refresh; changing
+it without refreshing only changes the visible trace of the graph already in
+memory.
+
+Every editor-provider request is bounded by
+`matlabViz.symbols.requestTimeoutSeconds`, and the complete operation is bounded
+by `matlabViz.symbols.analysisTimeoutSeconds`. A document-symbol timeout falls
+back to the MATLAB declaration scanner. Other request timeouts appear as
+analysis notices instead of leaving the operation waiting indefinitely. The
+output log records traversal progress by function, direction, and depth.
+
 The extension asks the language service to resolve every candidate. Array indexing such as `values(index)` can resemble a function call syntactically, but its definition normally resolves inside the current function and is discarded as a self-edge.
 
 ## Function and variable references
@@ -39,5 +52,6 @@ This graph answers “where is this symbol used?” It does not reconstruct valu
 - Method dispatch can be ambiguous when the receiver's class is unknown.
 - Reference results do not distinguish reads from writes.
 - The fallback declaration scanner approximates nested scopes when full document-symbol ranges are unavailable.
+- Increasing depth can grow the number of Definition and References requests exponentially; the node and total-time limits intentionally stop pathological traversals.
 
 MATLAB Viz labels these graphs as `language-service` analysis so they are not confused with MATLAB Dependency Analyzer file graphs.

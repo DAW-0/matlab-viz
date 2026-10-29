@@ -13,6 +13,7 @@ interface WebviewMessage {
   encoding?: "utf8" | "base64";
   line?: number;
   character?: number;
+  depth?: number;
 }
 
 function nonce(): string {
@@ -26,7 +27,7 @@ export class GraphPanel implements vscode.Disposable {
 
   public constructor(
     private readonly extensionUri: vscode.Uri,
-    private readonly refresh: () => Promise<void>
+    private readonly refresh: (depth?: number) => Promise<void>
   ) {}
 
   public dispose(): void {
@@ -124,7 +125,7 @@ export class GraphPanel implements vscode.Disposable {
         }
         break;
       case "refresh":
-        await this.refresh();
+        await this.refresh(message.depth);
         break;
       case "export":
         await this.exportGraph();
@@ -176,11 +177,11 @@ export class GraphPanel implements vscode.Disposable {
       <option value="all">Entire graph</option><option value="dependencies">Dependencies</option>
       <option value="impact">Impact</option>
     </select>
-    <label>Depth <input id="depth" type="number" min="1" max="99" value="3"></label>
+    <label title="Trace depth. Refresh rebuilds a function hierarchy to this depth.">Depth <input id="depth" type="number" min="1" max="20" value="3"></label>
     <label><input id="external" type="checkbox" checked> External</label>
     <label><input id="isolated" type="checkbox" checked> Isolated</label>
     <button id="fit" title="Fit graph to view">Fit</button>
-    <button id="refresh" title="Rerun MATLAB analysis">Refresh</button>
+    <button id="refresh" title="Rerun analysis; function hierarchies use the displayed depth">Refresh</button>
     <button id="export" title="Export graph">Export</button>
   </header>
   <div id="summary" role="status">No graph loaded</div>
@@ -202,7 +203,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
   public constructor(
     private readonly analyze: () => Promise<void>,
     private readonly show: () => void,
-    private readonly refresh: () => Promise<void>
+    private readonly refresh: (depth?: number) => Promise<void>
   ) {}
 
   public resolveWebviewView(view: vscode.WebviewView): void {

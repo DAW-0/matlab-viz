@@ -46,6 +46,7 @@ export interface GraphMetadata {
   mode: "project" | "folder" | "language-service";
   graphType?: "files" | "call-hierarchy" | "references";
   rootSymbol?: string;
+  analysisDepth?: number;
   matlabVersion: string;
   durationSeconds: number;
   projectName?: string;

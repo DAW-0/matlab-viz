@@ -4,6 +4,20 @@ All notable changes to MATLAB Viz will be documented here.
 
 ## [Unreleased]
 
+## [0.3.1]
+
+### Fixed
+
+- Function and reference refreshes now preserve their original symbol instead of depending on the active editor after the graph gains focus.
+- The graph toolbar Depth value now controls the call-hierarchy depth used by Refresh.
+- Language-service requests and complete symbol analyses now have configurable time limits.
+- Cancellation is no longer swallowed as a per-function warning.
+- Document-symbol timeouts now use the MATLAB syntax fallback.
+
+### Added
+
+- Per-function traversal progress and completion timing in the MATLAB Viz output log.
+
 ## [0.3.0]
 
 ### Added

@@ -23,6 +23,8 @@ export interface SymbolAnalysisOptions {
   maximumDepth: number;
   maximumNodes: number;
   includeExternal: boolean;
+  requestTimeoutSeconds: number;
+  analysisTimeoutSeconds: number;
 }
 
 export function readSymbolAnalysisOptions(): SymbolAnalysisOptions {
@@ -30,6 +32,8 @@ export function readSymbolAnalysisOptions(): SymbolAnalysisOptions {
   return {
     maximumDepth: config.get("symbols.maximumDepth", 3),
     maximumNodes: config.get("symbols.maximumNodes", 250),
-    includeExternal: config.get("includeExternal", false)
+    includeExternal: config.get("includeExternal", false),
+    requestTimeoutSeconds: config.get("symbols.requestTimeoutSeconds", 20),
+    analysisTimeoutSeconds: config.get("symbols.analysisTimeoutSeconds", 180)
   };
 }

@@ -2,7 +2,7 @@
 
 MATLAB Viz is a MATLAB-first dependency explorer for VS Code and VSCodium. It runs MATLAB's documented dependency-analysis APIs locally, converts the results into a portable graph model, and presents that model as an interactive dependency and impact graph.
 
-> **Development status:** `0.3.0` is a working development build. MATLAB Project and folder backends are validated against a real 22-file subsystem. Function call-hierarchy and symbol-reference graphs use the installed MATLAB language service and a conservative MATLAB syntax fallback.
+> **Development status:** `0.3.1` is a working development build. MATLAB Project and folder backends are validated against a real 22-file subsystem. Function call-hierarchy and symbol-reference graphs use the installed MATLAB language service and a conservative MATLAB syntax fallback.
 
 ## Why MATLAB Viz?
 
@@ -61,7 +61,7 @@ To create an installable package:
 
 ```powershell
 npm run package
-codium --install-extension matlab-viz-0.3.0.vsix
+codium --install-extension matlab-viz-0.3.1.vsix
 ```
 
 ## Standalone MATLAB API
@@ -113,6 +113,14 @@ all options and examples.
 | `matlabViz.maximumFiles` | `5000` | Safety limit for a single folder analysis. |
 | `matlabViz.symbols.maximumDepth` | `3` | Caller/callee traversal depth. |
 | `matlabViz.symbols.maximumNodes` | `250` | Safety limit for function and reference graphs. |
+| `matlabViz.symbols.requestTimeoutSeconds` | `20` | Maximum wait for one language-service request. |
+| `matlabViz.symbols.analysisTimeoutSeconds` | `180` | Maximum duration of a complete symbol analysis. |
+
+For a function hierarchy, the graph toolbar's **Depth** value controls the
+visible trace and is also used as the analysis depth when **Refresh** is
+pressed. Refresh reuses the original function even while the graph webview has
+focus. The MATLAB Viz output log reports each traversal step and any provider
+timeouts.
 
 ## Graph semantics
 

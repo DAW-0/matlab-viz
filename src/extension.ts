@@ -4,7 +4,12 @@ import { readAnalysisOptions, readSymbolAnalysisOptions } from "./configuration"
 import { GraphPanel, SidebarProvider } from "./graphPanel";
 import { runMatlabAnalysis } from "./matlabRunner";
 import type { DependencyGraph } from "./model";
-import { SymbolAnalyzer, type CallDirection } from "./symbolAnalyzer";
+import {
+  SymbolAnalyzer,
+  type CallDirection,
+  type ResolvedSymbol,
+  type SymbolAnchor
+} from "./symbolAnalyzer";
 
 class MatlabVizController implements vscode.Disposable {
   private readonly output = vscode.window.createOutputChannel("MATLAB Viz", { log: true });
@@ -18,9 +23,11 @@ class MatlabVizController implements vscode.Disposable {
   private refreshTimer: NodeJS.Timeout | undefined;
   private watcher: vscode.FileSystemWatcher | undefined;
   private lastSymbolAction: CallDirection | "references" | undefined;
+  private lastCallSeed: ResolvedSymbol | undefined;
+  private lastReferenceAnchor: SymbolAnchor | undefined;
 
   public constructor(private readonly context: vscode.ExtensionContext) {
-    this.panel = new GraphPanel(context.extensionUri, () => this.refresh());
+    this.panel = new GraphPanel(context.extensionUri, (depth) => this.refresh(depth));
     this.sidebar = new SidebarProvider(() => this.analyze(), () => this.showGraph(), () => this.refresh());
     this.status.command = "matlabViz.showGraph";
     this.status.tooltip = "Show the MATLAB Viz dependency graph";
@@ -66,6 +73,8 @@ class MatlabVizController implements vscode.Disposable {
     if (!root) return;
     this.lastRoot = root;
     this.lastSymbolAction = undefined;
+    this.lastCallSeed = undefined;
+    this.lastReferenceAnchor = undefined;
     this.running = true;
     this.status.text = "$(loading~spin) MATLAB Viz analyzing";
     try {
@@ -107,13 +116,13 @@ class MatlabVizController implements vscode.Disposable {
     }
   }
 
-  public async refresh(): Promise<void> {
+  public async refresh(depth?: number): Promise<void> {
     if (this.lastSymbolAction === "references") {
-      await this.analyzeSymbolReferences();
+      await this.analyzeSymbolReferences(this.lastReferenceAnchor);
       return;
     }
     if (this.lastSymbolAction) {
-      await this.analyzeCallHierarchy(this.lastSymbolAction);
+      await this.analyzeCallHierarchy(this.lastSymbolAction, this.lastCallSeed, depth);
       return;
     }
     if (this.lastRoot) {
@@ -131,21 +140,31 @@ class MatlabVizController implements vscode.Disposable {
     }
   }
 
-  private async analyzeCallHierarchy(direction: CallDirection): Promise<void> {
+  private async analyzeCallHierarchy(
+    direction: CallDirection,
+    seed?: ResolvedSymbol,
+    requestedDepth?: number
+  ): Promise<void> {
     if (this.running) {
       void vscode.window.showInformationMessage("A MATLAB Viz analysis is already running.");
       return;
     }
     this.running = true;
-    this.lastSymbolAction = direction;
     const label = direction === "both" ? "call hierarchy" : direction === "incoming" ? "callers" : "callees";
     this.status.text = `$(loading~spin) MATLAB Viz ${label}`;
     try {
       await vscode.window.withProgress(
         { location: vscode.ProgressLocation.Notification, title: `MATLAB Viz: tracing ${label}…`, cancellable: true },
         async (_progress, token) => {
-          const graph = await this.symbolAnalyzer.analyzeCallHierarchy(direction, readSymbolAnalysisOptions(), token);
-          await this.acceptGraph(graph);
+          const options = readSymbolAnalysisOptions();
+          if (requestedDepth !== undefined && Number.isFinite(requestedDepth)) {
+            options.maximumDepth = Math.max(1, Math.min(20, Math.trunc(requestedDepth)));
+          }
+          const result = await this.symbolAnalyzer.analyzeCallHierarchy(direction, options, token, seed);
+          this.lastSymbolAction = direction;
+          this.lastCallSeed = result.seed;
+          this.lastReferenceAnchor = undefined;
+          await this.acceptGraph(result.graph);
         }
       );
     } catch (error) {
@@ -155,20 +174,22 @@ class MatlabVizController implements vscode.Disposable {
     }
   }
 
-  private async analyzeSymbolReferences(): Promise<void> {
+  private async analyzeSymbolReferences(anchor?: SymbolAnchor): Promise<void> {
     if (this.running) {
       void vscode.window.showInformationMessage("A MATLAB Viz analysis is already running.");
       return;
     }
     this.running = true;
-    this.lastSymbolAction = "references";
     this.status.text = "$(loading~spin) MATLAB Viz references";
     try {
       await vscode.window.withProgress(
         { location: vscode.ProgressLocation.Notification, title: "MATLAB Viz: tracing symbol references…", cancellable: true },
         async (_progress, token) => {
-          const graph = await this.symbolAnalyzer.analyzeReferences(readSymbolAnalysisOptions(), token);
-          await this.acceptGraph(graph);
+          const result = await this.symbolAnalyzer.analyzeReferences(readSymbolAnalysisOptions(), token, anchor);
+          this.lastSymbolAction = "references";
+          this.lastReferenceAnchor = result.anchor;
+          this.lastCallSeed = undefined;
+          await this.acceptGraph(result.graph);
         }
       );
     } catch (error) {
