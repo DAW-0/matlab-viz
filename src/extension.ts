@@ -89,9 +89,8 @@ class MatlabVizController implements vscode.Disposable {
           const helper = vscode.Uri.joinPath(this.context.extensionUri, "matlab").fsPath;
           const result = await runMatlabAnalysis(root, helper, readAnalysisOptions(), token, this.output);
           this.graph = result.graph;
-          this.panel.setGraph(result.graph);
+          this.panel.update(result.graph);
           this.sidebar.setGraph(result.graph);
-          this.panel.show(result.graph);
           await this.persistGraph(result.graph);
           this.status.text = `$(type-hierarchy) ${result.graph.nodes.length} files · ${result.graph.edges.length} edges`;
           if (result.graph.problems.length > 0) {
@@ -202,9 +201,8 @@ class MatlabVizController implements vscode.Disposable {
   private async acceptGraph(graph: DependencyGraph): Promise<void> {
     this.graph = graph;
     this.lastRoot = graph.metadata.root;
-    this.panel.setGraph(graph);
+    this.panel.update(graph);
     this.sidebar.setGraph(graph);
-    this.panel.show(graph);
     await this.persistGraph(graph);
     this.status.text = `$(type-hierarchy) ${graph.nodes.length} symbols · ${graph.edges.length} edges`;
     if (graph.problems.length > 0) {

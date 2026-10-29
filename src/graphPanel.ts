@@ -56,14 +56,19 @@ export class GraphPanel implements vscode.Disposable {
         this.panel = undefined;
       });
     } else {
-      this.panel.reveal(vscode.ViewColumn.One);
+      this.panel.reveal(this.panel.viewColumn);
     }
     this.postGraph();
   }
 
-  public setGraph(graph: DependencyGraph): void {
+  /** Update the graph without moving or focusing an existing webview panel. */
+  public update(graph: DependencyGraph): void {
     this.graph = graph;
-    this.postGraph();
+    if (this.panel) {
+      this.postGraph();
+    } else {
+      this.show();
+    }
   }
 
   public async exportGraph(): Promise<void> {

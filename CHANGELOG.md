@@ -4,6 +4,13 @@ All notable changes to MATLAB Viz will be documented here.
 
 ## [Unreleased]
 
+## [0.3.3]
+
+### Fixed
+
+- Refresh now updates an existing graph webview in place, preserving its editor group or detached-window location.
+- Explicitly showing an existing graph no longer forces it into the first editor column.
+
 ## [0.3.2]
 
 ### Fixed
