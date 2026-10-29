@@ -2,7 +2,7 @@
 
 MATLAB Viz is a MATLAB-first dependency explorer for VS Code and VSCodium. It runs MATLAB's documented dependency-analysis APIs locally, converts the results into a portable graph model, and presents that model as an interactive dependency and impact graph.
 
-> **Development status:** `0.2.0` is a working development build. MATLAB Project and folder backends are validated against a real 22-file subsystem. Function call-hierarchy and symbol-reference graphs use the installed MATLAB language service and a conservative MATLAB syntax fallback.
+> **Development status:** `0.3.0` is a working development build. MATLAB Project and folder backends are validated against a real 22-file subsystem. Function call-hierarchy and symbol-reference graphs use the installed MATLAB language service and a conservative MATLAB syntax fallback.
 
 ## Why MATLAB Viz?
 
@@ -33,6 +33,8 @@ The Project backend is the programmatic form of MATLAB's built-in Dependency Ana
 - Trace only callers or only callees to a configurable depth.
 - Trace function or variable references and group each reference by its containing function or file.
 - Navigate directly from a function or symbol node to its source location.
+- Run the folder analyzer directly from MATLAB and receive a `digraph` report.
+- Write standalone node, edge, product, problem, DOT, MAT, SVG, and PNG artifacts.
 
 ## Requirements
 
@@ -59,8 +61,25 @@ To create an installable package:
 
 ```powershell
 npm run package
-codium --install-extension matlab-viz-0.2.0.vsix
+codium --install-extension matlab-viz-0.3.0.vsix
 ```
+
+## Standalone MATLAB API
+
+The same folder analyzer used by the extension is available without VS Code or VSCodium:
+
+```matlab
+addpath("matlab")
+
+report = analyzeMatlabFileDependencies(sourceRoot, ...
+    OutputDirectory=outputDirectory);
+```
+
+`report.graph` is a MATLAB `digraph`; `report.nodes`, `report.edges`,
+`report.products`, and `report.problems` are tables. The output directory
+contains CSV tables, Graphviz DOT, a complete MAT report, and MATLAB-rendered
+SVG and PNG graphs. See the [standalone analyzer guide](matlab/README.md) for
+all options and examples.
 
 ## Commands
 
@@ -111,6 +130,7 @@ For function graphs, `caller → callee` means the source function calls the tar
 - [Architecture](docs/ARCHITECTURE.md)
 - [Dependency analysis](docs/DEPENDENCY_ANALYSIS.md)
 - [Function and symbol analysis](docs/SYMBOL_ANALYSIS.md)
+- [Standalone MATLAB analyzer](matlab/README.md)
 - [Development and testing](docs/DEVELOPMENT.md)
 - [Roadmap](docs/ROADMAP.md)
 - [Contributing](CONTRIBUTING.md)

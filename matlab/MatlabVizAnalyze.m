@@ -115,50 +115,71 @@ projectName = string(project.Name);
 end
 
 function [nodes, edges, products, problems] = analyzeFolder(rootPath, options)
-extensions = [".m", ".mlx", ".p", ".slx", ".mdl", ".mlapp"];
-listing = dir(fullfile(rootPath, "**", "*"));
-listing = listing(~[listing.isdir]);
-paths = string(fullfile({listing.folder}, {listing.name})).';
-paths = paths(ismember(lower(string(arrayfun(@(item) fileExtension(item), listing, UniformOutput=false))), extensions));
-paths = unique(paths, "stable");
-if numel(paths) > double(options.maximumFiles)
-    error("MatlabViz:MaximumFilesExceeded", ...
-        "The selected root contains %d analyzable files, exceeding maximumFiles=%d.", ...
-        numel(paths), options.maximumFiles);
+report = analyzeMatlabFileDependencies(rootPath, ...
+    IncludeExternal=logical(options.includeExternal), ...
+    IncludeIsolated=logical(options.includeIsolated), ...
+    MaximumFiles=double(options.maximumFiles), ...
+    Render=false, Print=false);
+nodes = nodesFromStandaloneReport(report.nodes);
+edges = edgesFromStandaloneReport(report.edges);
+products = productsFromStandaloneReport(report.products);
+problems = problemsFromStandaloneReport(report.problems);
 end
 
-originalPath = path;
-pathCleanup = onCleanup(@() path(originalPath));
-addpath(genpath(rootPath));
-
-sourcePaths = strings(0, 1);
-targetPaths = strings(0, 1);
-edgeKinds = strings(0, 1);
-edgeDetails = strings(0, 1);
-products = emptyProducts();
-problems = emptyProblems();
-for index = 1:numel(paths)
-    source = paths(index);
-    try
-        [requiredFiles, requiredProducts] = matlab.codetools.requiredFilesAndProducts(source, "toponly");
-        dependencies = string(requiredFiles(:));
-        dependencies = dependencies(~samePath(dependencies, source));
-        sourcePaths = [sourcePaths; repmat(source, numel(dependencies), 1)]; %#ok<AGROW>
-        targetPaths = [targetPaths; dependencies]; %#ok<AGROW>
-        edgeKinds = [edgeKinds; repmat("function or file dependency", numel(dependencies), 1)]; %#ok<AGROW>
-        edgeDetails = [edgeDetails; repmat("requiredFilesAndProducts (direct)", numel(dependencies), 1)]; %#ok<AGROW>
-        products = [products; makeProducts(requiredProducts, source)]; %#ok<AGROW>
-    catch exception
-        problems(end + 1, 1) = makeProblem(source, exception.message, "warning"); %#ok<AGROW>
-    end
+function nodes = nodesFromStandaloneReport(nodeTable)
+prototype = struct("id", "", "label", "", "path", "", "relativePath", "", ...
+    "extension", "", "kind", "", "external", false, "missing", false);
+nodes = repmat(prototype, height(nodeTable), 1);
+for index = 1:height(nodeTable)
+    filePath = normalizePath(nodeTable.AbsolutePath(index));
+    nodes(index) = struct( ...
+        "id", filePath, ...
+        "label", string(nodeTable.Label(index)), ...
+        "path", filePath, ...
+        "relativePath", string(nodeTable.RelativePath(index)), ...
+        "extension", lower(string(nodeTable.Extension(index))), ...
+        "kind", string(nodeTable.Kind(index)), ...
+        "external", logical(nodeTable.External(index)), ...
+        "missing", logical(nodeTable.Missing(index)));
+end
 end
 
-allPaths = unique([paths; targetPaths], "stable");
-[nodes, idByPath] = makeNodes(allPaths, rootPath);
-edges = makeEdges(sourcePaths, targetPaths, edgeKinds, edgeDetails, idByPath);
-[nodes, edges] = applyScope(nodes, edges, logical(options.includeExternal), logical(options.includeIsolated));
-products = uniqueProducts(products);
-problems = [problems; problemsForNodes(nodes)];
+function edges = edgesFromStandaloneReport(edgeTable)
+prototype = struct("id", "", "source", "", "target", "", "kind", "", "details", "");
+edges = repmat(prototype, height(edgeTable), 1);
+for index = 1:height(edgeTable)
+    edges(index) = struct( ...
+        "id", "edge-" + index, ...
+        "source", normalizePath(edgeTable.SourcePath(index)), ...
+        "target", normalizePath(edgeTable.TargetPath(index)), ...
+        "kind", string(edgeTable.Kind(index)), ...
+        "details", string(edgeTable.Details(index)));
+end
+end
+
+function products = productsFromStandaloneReport(productTable)
+prototype = struct("name", "", "version", "", "productNumber", "", ...
+    "certain", false, "introducedBy", "");
+products = repmat(prototype, height(productTable), 1);
+for index = 1:height(productTable)
+    products(index) = struct( ...
+        "name", string(productTable.Product(index)), ...
+        "version", string(productTable.Version(index)), ...
+        "productNumber", string(productTable.ProductNumber(index)), ...
+        "certain", logical(productTable.Certain(index)), ...
+        "introducedBy", normalizePath(productTable.AbsoluteSource(index)));
+end
+end
+
+function problems = problemsFromStandaloneReport(problemTable)
+problems = repmat(struct("file", "", "message", "", "severity", "warning"), ...
+    height(problemTable), 1);
+for index = 1:height(problemTable)
+    problems(index) = struct( ...
+        "file", normalizePath(problemTable.AbsoluteSource(index)), ...
+        "message", string(problemTable.Message(index)), ...
+        "severity", string(problemTable.Severity(index)));
+end
 end
 
 function [nodes, idByPath] = makeNodes(paths, rootPath)
@@ -232,37 +253,6 @@ if ~includeIsolated
     keepNodes = keepNodes & ismember(string({nodes.id}).', connectedIds);
 end
 nodes = nodes(keepNodes);
-end
-
-function products = makeProducts(productList, source)
-prototype = struct("name", "", "version", "", "productNumber", "", "certain", false, "introducedBy", "");
-products = repmat(prototype, numel(productList), 1);
-for index = 1:numel(productList)
-    product = productList(index);
-    products(index) = struct( ...
-        "name", safeField(product, "Name", ""), ...
-        "version", safeField(product, "Version", ""), ...
-        "productNumber", safeField(product, "ProductNumber", ""), ...
-        "certain", logical(safeField(product, "Certain", false)), ...
-        "introducedBy", source);
-end
-end
-
-function value = safeField(item, field, defaultValue)
-if isfield(item, field)
-    value = item.(field);
-else
-    value = defaultValue;
-end
-end
-
-function products = uniqueProducts(products)
-if isempty(products)
-    return;
-end
-keys = lower(string({products.name}).') + "\n" + lower(string({products.introducedBy}).');
-[~, indices] = unique(keys, "stable");
-products = products(indices);
 end
 
 function problems = problemsForNodes(nodes)
@@ -359,10 +349,6 @@ switch lower(string(extension))
     otherwise
         kind = "file";
 end
-end
-
-function extension = fileExtension(item)
-[~, ~, extension] = fileparts(fullfile(item.folder, item.name));
 end
 
 function result = isProjectFolder(rootPath)

@@ -32,9 +32,19 @@ Local MATLAB batch process
 
 ## MATLAB bridge
 
-`matlab/MatlabVizAnalyze.m` is the only MATLAB entry point. It emits the versioned model described below. It restores the MATLAB path and current folder after analysis.
+`matlab/analyzeMatlabFileDependencies.m` is the public, editor-independent
+folder-analysis API. It returns a MATLAB `digraph` and report tables and can
+write CSV, DOT, MAT, SVG, and PNG artifacts.
 
-Project analysis uses the Project object's dependency graph. Folder analysis calls `requiredFilesAndProducts(...,"toponly")` once per supported source file, which is necessary to preserve direct edges.
+`matlab/MatlabVizAnalyze.m` is the extension bridge. Project mode exports the
+MATLAB Project dependency graph directly. Folder mode calls
+`analyzeMatlabFileDependencies` and converts that shared report into the
+versioned JSON model described below. Both entry points restore temporary
+MATLAB path and current-folder changes.
+
+Project analysis uses the Project object's dependency graph. The shared folder
+analyzer calls `requiredFilesAndProducts(...,"toponly")` once per supported
+source file, which is necessary to preserve direct edges.
 
 ## Graph model
 

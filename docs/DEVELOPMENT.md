@@ -28,12 +28,28 @@ npm run package
 The package script type-checks and bundles the extension before invoking `vsce`. Install the resulting VSIX with:
 
 ```powershell
-codium --install-extension .\matlab-viz-0.2.0.vsix
+codium --install-extension .\matlab-viz-0.3.0.vsix
 ```
 
 ## MATLAB-only validation
 
-The MATLAB bridge can be tested without loading the extension. Create an options JSON document matching `AnalysisOptions`, then call:
+The public folder analyzer can be tested without loading the extension:
+
+```matlab
+addpath("matlab")
+report = analyzeMatlabFileDependencies(sourceRoot,Print=false);
+```
+
+Run its MATLAB function tests with:
+
+```matlab
+addpath("matlab")
+results = runtests("test/matlab/testAnalyzeMatlabFileDependencies.m");
+assertSuccess(results)
+```
+
+To test the extension JSON bridge, create an options JSON document matching
+`AnalysisOptions`, then call:
 
 ```matlab
 addpath("matlab")
@@ -43,6 +59,7 @@ MatlabVizAnalyze(sourceRoot,outputJson,optionsJson)
 Run MATLAB Code Analyzer before committing changes:
 
 ```matlab
+checkcode("matlab/analyzeMatlabFileDependencies.m","-id")
 checkcode("matlab/MatlabVizAnalyze.m","-id")
 ```
 

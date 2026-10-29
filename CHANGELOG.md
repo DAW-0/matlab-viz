@@ -4,6 +4,19 @@ All notable changes to MATLAB Viz will be documented here.
 
 ## [Unreleased]
 
+## [0.3.0]
+
+### Added
+
+- Public `analyzeMatlabFileDependencies` MATLAB API returning a `digraph` and portable report tables.
+- Standalone CSV, Graphviz DOT, MAT, MATLAB-rendered SVG, and PNG artifacts.
+- Standalone analyzer documentation and MATLAB function tests.
+
+### Changed
+
+- The extension folder backend now delegates to the public analyzer instead of maintaining a duplicate scanner.
+- Standalone reports include isolated/external controls, missing-file metadata, safety limits, and compatibility error data.
+
 ## [0.2.0]
 
 ### Added

@@ -2,7 +2,7 @@
   "name": "matlab-viz",
   "displayName": "MATLAB Viz",
   "description": "Interactive MATLAB and Simulink dependency graphs powered by MATLAB's native dependency analysis.",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "publisher": "daw-0",
   "private": true,
   "repository": {

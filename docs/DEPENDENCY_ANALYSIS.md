@@ -26,6 +26,19 @@ It performs one call per source file. A single call over all files would return 
 
 Supported analysis roots currently discover `.m`, `.mlx`, `.p`, `.slx`, `.mdl`, and `.mlapp` files. Files returned as dependencies can have other extensions.
 
+Folder mode and the standalone MATLAB API use the same implementation:
+
+```matlab
+addpath("matlab")
+report = analyzeMatlabFileDependencies(sourceRoot);
+```
+
+This shared boundary ensures that editor graphs and direct MATLAB analyses use
+the same discovery rules, direct-edge semantics, scope filtering, product
+collection, and problem reporting. The standalone API additionally exposes the
+native `digraph` and optional file artifacts. See
+[`matlab/README.md`](../matlab/README.md).
+
 ## Static-analysis limitations
 
 MATLAB documents important limitations in Dependency Analyzer and `requiredFilesAndProducts`:
