@@ -71,6 +71,14 @@ export class GraphPanel implements vscode.Disposable {
     }
   }
 
+  public showProblems(): void {
+    if (!this.graph?.problems.length) {
+      return;
+    }
+    this.show();
+    void this.panel?.webview.postMessage({ type: "showProblems" });
+  }
+
   public async exportGraph(): Promise<void> {
     if (!this.graph) {
       void vscode.window.showInformationMessage("Run a MATLAB Viz analysis before exporting a graph.");
@@ -182,11 +190,12 @@ export class GraphPanel implements vscode.Disposable {
       <option value="all">Entire graph</option><option value="dependencies">Dependencies</option>
       <option value="impact">Impact</option>
     </select>
-    <label title="Trace depth. Refresh rebuilds a function hierarchy to this depth.">Depth <input id="depth" type="number" min="1" max="20" value="3"></label>
+    <label id="depth-label"><span id="depth-text">Trace depth</span> <input id="depth" type="number" min="1" max="20" value="3"></label>
     <label><input id="external" type="checkbox" checked> External</label>
     <label><input id="isolated" type="checkbox" checked> Isolated</label>
     <button id="fit" title="Fit graph to view">Fit</button>
     <button id="refresh" title="Rerun analysis; function hierarchies use the displayed depth">Refresh</button>
+    <button id="problems" title="Show MATLAB analysis notices" hidden>Notices</button>
     <button id="export" title="Export graph">Export</button>
   </header>
   <div id="summary" role="status">No graph loaded</div>

@@ -12,6 +12,7 @@ html, body { height: 100%; margin: 0; overflow: hidden; }
 body { color: var(--vscode-foreground); background: var(--vscode-editor-background); font-family: var(--vscode-font-family); }
 #toolbar { min-height: var(--toolbar-height); display: flex; align-items: center; gap: 7px; padding: 6px 8px; border-bottom: 1px solid var(--vscode-panel-border); background: var(--vscode-editorGroupHeader-tabsBackground); flex-wrap: wrap; }
 #toolbar input, #toolbar select, #toolbar button { border: 1px solid var(--vscode-input-border, transparent); background: var(--vscode-input-background); color: var(--vscode-input-foreground); padding: 4px 7px; }
+#toolbar input:disabled { opacity: .55; cursor: not-allowed; }
 #toolbar button { background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); cursor: pointer; }
 #toolbar button:hover { background: var(--vscode-button-secondaryHoverBackground); }
 #search { width: min(260px, 25vw); }
@@ -27,6 +28,12 @@ main { height: calc(100% - var(--toolbar-height) - 25px); display: grid; grid-te
 #details dt { color: var(--vscode-descriptionForeground); margin-top: 9px; }
 #details dd { margin: 2px 0; overflow-wrap: anywhere; }
 #details button { width: 100%; margin-top: 12px; padding: 6px; }
+.problem { border-top: 1px solid var(--vscode-panel-border); padding: 10px 0 14px; }
+.problem h3 { font-size: .95rem; margin: 0 0 6px; overflow-wrap: anywhere; }
+.problem-severity { display: inline-block; margin: 0 0 6px; padding: 1px 6px; border-radius: 3px; text-transform: capitalize; background: var(--vscode-badge-background); color: var(--vscode-badge-foreground); }
+.problem-severity.error { color: var(--vscode-errorForeground); }
+.problem-severity.warning { color: var(--vscode-editorWarning-foreground, #cca700); }
+.problem-message { margin: 4px 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 .edge { stroke: var(--edge); stroke-width: 1.2; opacity: .62; fill: none; marker-end: url(#arrow); cursor: pointer; }
 .edge.highlight { stroke: var(--selected); stroke-width: 2.4; opacity: 1; }
 .node { cursor: pointer; }

@@ -93,11 +93,7 @@ class MatlabVizController implements vscode.Disposable {
           this.sidebar.setGraph(result.graph);
           await this.persistGraph(result.graph);
           this.status.text = `$(type-hierarchy) ${result.graph.nodes.length} files · ${result.graph.edges.length} edges`;
-          if (result.graph.problems.length > 0) {
-            void vscode.window.showWarningMessage(
-              `MATLAB Viz generated the graph with ${result.graph.problems.length} analysis problem(s).`
-            );
-          }
+          this.notifyProblems(result.graph);
         }
       );
     } catch (error) {
@@ -205,11 +201,33 @@ class MatlabVizController implements vscode.Disposable {
     this.sidebar.setGraph(graph);
     await this.persistGraph(graph);
     this.status.text = `$(type-hierarchy) ${graph.nodes.length} symbols · ${graph.edges.length} edges`;
-    if (graph.problems.length > 0) {
-      void vscode.window.showWarningMessage(
-        `MATLAB Viz generated the graph with ${graph.problems.length} analysis notice(s).`
-      );
+    this.notifyProblems(graph);
+  }
+
+  private notifyProblems(graph: DependencyGraph): void {
+    if (graph.problems.length === 0) {
+      return;
     }
+    const count = (severity: "error" | "warning" | "information"): number =>
+      graph.problems.filter((problem) => problem.severity === severity).length;
+    const descriptions = [
+      [count("error"), "error"],
+      [count("warning"), "warning"],
+      [count("information"), "information notice"]
+    ]
+      .filter(([amount]) => Number(amount) > 0)
+      .map(([amount, label]) => `${amount} ${label}${Number(amount) === 1 ? "" : "s"}`)
+      .join(", ");
+    void vscode.window
+      .showWarningMessage(
+        `MATLAB Viz generated the graph successfully with ${descriptions}.`,
+        "View Analysis Notices",
+        "Show Logs"
+      )
+      .then((action) => {
+        if (action === "View Analysis Notices") this.panel.showProblems();
+        if (action === "Show Logs") this.output.show();
+      });
   }
 
   private async handleAnalysisError(error: unknown, operation: string): Promise<void> {

@@ -4,6 +4,18 @@ All notable changes to MATLAB Viz will be documented here.
 
 ## [Unreleased]
 
+## [0.3.4]
+
+### Fixed
+
+- File-dependency graphs now distinguish client-side trace depth from function-hierarchy analysis depth.
+- Trace depth is disabled while an entire file graph is displayed, avoiding the impression that it changes repository analysis scope.
+- Nonfatal MATLAB analyzer diagnostics are now described accurately instead of being presented as a graph-generation failure.
+
+### Added
+
+- Analysis notices can be inspected from the graph toolbar or directly from the completion notification, including source-file navigation.
+
 ## [0.3.3]
 
 ### Fixed

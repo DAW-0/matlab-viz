@@ -7,8 +7,11 @@
   const layout = document.getElementById("layout");
   const direction = document.getElementById("direction");
   const depth = document.getElementById("depth");
+  const depthLabel = document.getElementById("depth-label");
+  const depthText = document.getElementById("depth-text");
   const external = document.getElementById("external");
   const isolated = document.getElementById("isolated");
+  const problemsButton = document.getElementById("problems");
   const tooltip = document.getElementById("tooltip");
   const NS = "http://www.w3.org/2000/svg";
 
@@ -73,6 +76,69 @@
       }
     }
     return found;
+  }
+
+  function isFunctionGraph() {
+    return graph?.metadata.graphType === "call-hierarchy";
+  }
+
+  function updateDepthControl() {
+    const functionGraph = isFunctionGraph();
+    depthText.textContent = functionGraph ? "Analysis depth" : "Trace depth";
+    depth.disabled = !functionGraph && direction.value === "all";
+    depthLabel.title = functionGraph
+      ? "Maximum caller/callee analysis depth. Refresh rebuilds the hierarchy to this depth."
+      : direction.value === "all"
+        ? "Select Dependencies or Impact to filter the displayed graph by trace depth."
+        : "Maximum dependency or impact depth shown from the selected node. This does not rerun or expand repository analysis.";
+  }
+
+  function problemSummary() {
+    if (!graph?.problems.length) return "0 notices";
+    const counts = new Map();
+    for (const problem of graph.problems) counts.set(problem.severity, (counts.get(problem.severity) || 0) + 1);
+    return [
+      ["error", "error"],
+      ["warning", "warning"],
+      ["information", "information notice"]
+    ]
+      .filter(([severity]) => counts.get(severity))
+      .map(([severity, label]) => `${counts.get(severity)} ${label}${counts.get(severity) === 1 ? "" : "s"}`)
+      .join(", ");
+  }
+
+  function problemFileLabel(file) {
+    if (!file) return "General analysis notice";
+    const normalized = file.replace(/\\/g, "/");
+    const root = graph.metadata.root.replace(/\\/g, "/").replace(/\/$/, "");
+    return normalized.toLowerCase().startsWith(`${root.toLowerCase()}/`)
+      ? normalized.slice(root.length + 1)
+      : normalized;
+  }
+
+  function showProblems() {
+    details.replaceChildren();
+    const heading = document.createElement("h2");
+    heading.textContent = `Analysis notices (${graph?.problems.length || 0})`;
+    details.appendChild(heading);
+    if (!graph?.problems.length) {
+      const empty = document.createElement("p"); empty.textContent = "No analysis notices were reported."; details.appendChild(empty);
+      return;
+    }
+    for (const problem of graph.problems) {
+      const article = document.createElement("article"); article.className = "problem";
+      const title = document.createElement("h3"); title.textContent = problemFileLabel(problem.file); article.appendChild(title);
+      const severity = document.createElement("p"); severity.className = `problem-severity ${problem.severity}`; severity.textContent = problem.severity; article.appendChild(severity);
+      const message = document.createElement("p"); message.className = "problem-message"; message.textContent = problem.message; article.appendChild(message);
+      if (problem.file) {
+        const lineMatch = problem.message.match(/\bLine\s+(\d+)/i);
+        const line = lineMatch ? Math.max(0, Number(lineMatch[1]) - 1) : undefined;
+        const open = document.createElement("button"); open.textContent = "Open file";
+        open.addEventListener("click", () => vscode.postMessage({ type: "openFile", path: problem.file, line }));
+        article.appendChild(open);
+      }
+      details.appendChild(article);
+    }
   }
 
   function calculateLayout(kind) {
@@ -196,7 +262,7 @@
     for (const node of data.nodes) drawNode(node, query);
     const itemLabel = graph.metadata.graphType === "files" || !graph.metadata.graphType ? "files" : "symbols";
     const edgeLabel = graph.metadata.graphType === "references" ? "references" : graph.metadata.graphType === "call-hierarchy" ? "calls" : "dependencies";
-    summary.textContent = `${data.nodes.length}/${graph.nodes.length} ${itemLabel} · ${data.edges.length}/${graph.edges.length} ${edgeLabel} · ${graph.products.length} product references · ${graph.problems.length} problems · ${graph.metadata.mode} · ${graph.metadata.durationSeconds.toFixed(1)} s`;
+    summary.textContent = `${data.nodes.length}/${graph.nodes.length} ${itemLabel} · ${data.edges.length}/${graph.edges.length} ${edgeLabel} · ${graph.products.length} product references · ${problemSummary()} · ${graph.metadata.mode} · ${graph.metadata.durationSeconds.toFixed(1)} s`;
   }
 
   function drawEdge(edge) {
@@ -316,9 +382,15 @@
   svg.addEventListener("wheel", (event) => { event.preventDefault(); const rect = svg.getBoundingClientRect(); const x = event.clientX - rect.left, y = event.clientY - rect.top; const next = Math.max(.05, Math.min(8, transform.k * Math.exp(-event.deltaY * .001))); transform.x = x - ((x - transform.x) / transform.k) * next; transform.y = y - ((y - transform.y) / transform.k) * next; transform.k = next; updateTransform(); }, { passive: false });
   search.addEventListener("input", () => render());
   layout.addEventListener("change", () => { calculateLayout(layout.value); render(); fit(); });
-  for (const control of [direction, depth, external, isolated]) control.addEventListener("change", () => { render(); fit(); });
+  direction.addEventListener("change", () => { updateDepthControl(); render(); fit(); });
+  for (const control of [depth, external, isolated]) control.addEventListener("change", () => { render(); fit(); });
   document.getElementById("fit").addEventListener("click", fit);
-  document.getElementById("refresh").addEventListener("click", () => vscode.postMessage({ type: "refresh", depth: Number(depth.value) || 3 }));
+  document.getElementById("refresh").addEventListener("click", () => {
+    const message = { type: "refresh" };
+    if (isFunctionGraph()) message.depth = Number(depth.value) || 3;
+    vscode.postMessage(message);
+  });
+  problemsButton.addEventListener("click", showProblems);
   document.getElementById("export").addEventListener("click", () => vscode.postMessage({ type: "export" }));
   window.addEventListener("resize", fit);
   window.addEventListener("message", (event) => {
@@ -326,12 +398,17 @@
       graph = event.data.graph; positions = new Map(); selectedId = undefined;
       const functionGraph = graph.metadata.graphType === "call-hierarchy";
       if (functionGraph && graph.metadata.analysisDepth) depth.value = String(graph.metadata.analysisDepth);
+      const onlyWarnings = graph.problems.length > 0 && graph.problems.every((problem) => problem.severity === "warning");
+      problemsButton.hidden = graph.problems.length === 0;
+      problemsButton.textContent = `${onlyWarnings ? "Warnings" : "Notices"} (${graph.problems.length})`;
       direction.options[1].textContent = functionGraph ? "Callees" : "Dependencies";
       direction.options[2].textContent = functionGraph ? "Callers" : "Impact";
       search.placeholder = graph.metadata.graphType === "files" || !graph.metadata.graphType ? "Search files…" : "Search symbols…";
       layout.value = functionGraph ? "hierarchical" : event.data.defaultLayout || "force";
+      updateDepthControl();
       render(true); requestAnimationFrame(fit);
     } else if (event.data.type === "requestExport") exportVisual(event.data.format);
+    else if (event.data.type === "showProblems") showProblems();
   });
   vscode.postMessage({ type: "ready" });
 })();

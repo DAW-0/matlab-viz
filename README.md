@@ -122,6 +122,13 @@ pressed. Refresh reuses the original function even while the graph webview has
 focus. The MATLAB Viz output log reports each traversal step and any provider
 timeouts.
 
+For a file-dependency graph, **Trace depth** is a client-side display filter
+used after selecting a file and choosing **Dependencies** or **Impact**. It
+does not change the repository analysis scope and is disabled while
+**Entire graph** is selected. MATLAB diagnostics do not invalidate a completed
+graph; use the graph toolbar's **Notices** button to inspect them and open the
+affected source files.
+
 ## Graph semantics
 
 An arrow `A → B` means that **A depends on B**. Consequently:
