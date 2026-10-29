@@ -1,0 +1,216 @@
+{
+  "name": "matlab-viz",
+  "displayName": "MatlabViz",
+  "description": "Interactive MATLAB and Simulink dependency graphs powered by MATLAB's native dependency analysis.",
+  "version": "0.1.0",
+  "publisher": "daw-0",
+  "private": true,
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/DAW-0/MatlabViz.git"
+  },
+  "homepage": "https://github.com/DAW-0/MatlabViz#readme",
+  "bugs": {
+    "url": "https://github.com/DAW-0/MatlabViz/issues"
+  },
+  "engines": {
+    "vscode": "^1.95.0"
+  },
+  "categories": [
+    "Visualization",
+    "Programming Languages",
+    "Other"
+  ],
+  "keywords": [
+    "MATLAB",
+    "Simulink",
+    "dependency graph",
+    "impact analysis",
+    "call graph",
+    "code visualization"
+  ],
+  "activationEvents": [
+    "onView:matlabViz.sidebar",
+    "onCommand:matlabViz.analyzeWorkspace",
+    "onCommand:matlabViz.analyzeSelection",
+    "onCommand:matlabViz.refresh",
+    "onCommand:matlabViz.showGraph",
+    "onCommand:matlabViz.exportGraph",
+    "onCommand:matlabViz.openLogs"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "matlabViz.analyzeWorkspace",
+        "title": "MatlabViz: Analyze Workspace"
+      },
+      {
+        "command": "matlabViz.analyzeSelection",
+        "title": "MatlabViz: Analyze Selected File or Folder"
+      },
+      {
+        "command": "matlabViz.refresh",
+        "title": "MatlabViz: Refresh Dependency Graph",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "matlabViz.showGraph",
+        "title": "MatlabViz: Show Dependency Graph",
+        "icon": "$(type-hierarchy)"
+      },
+      {
+        "command": "matlabViz.exportGraph",
+        "title": "MatlabViz: Export Graph"
+      },
+      {
+        "command": "matlabViz.openLogs",
+        "title": "MatlabViz: Show Logs"
+      },
+      {
+        "command": "matlabViz.configureMatlab",
+        "title": "MatlabViz: Configure MATLAB Executable"
+      }
+    ],
+    "menus": {
+      "explorer/context": [
+        {
+          "command": "matlabViz.analyzeSelection",
+          "group": "navigation@90",
+          "when": "resourceScheme == file"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "matlabViz.refresh",
+          "group": "navigation",
+          "when": "view == matlabViz.sidebar"
+        },
+        {
+          "command": "matlabViz.showGraph",
+          "group": "navigation@2",
+          "when": "view == matlabViz.sidebar"
+        }
+      ]
+    },
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "matlabViz",
+          "title": "MatlabViz",
+          "icon": "media/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "matlabViz": [
+        {
+          "id": "matlabViz.sidebar",
+          "name": "Dependency Graph",
+          "type": "webview"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "MatlabViz",
+      "properties": {
+        "matlabViz.matlabExecutable": {
+          "type": "string",
+          "default": "",
+          "description": "Absolute path to the MATLAB executable. Leave blank to auto-detect MATLAB."
+        },
+        "matlabViz.analysisMode": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "project",
+            "folder"
+          ],
+          "enumDescriptions": [
+            "Use MATLAB Project dependencies when a project is detected, otherwise analyze files.",
+            "Require and use MATLAB's Project Dependency Analyzer graph.",
+            "Analyze direct file dependencies with requiredFilesAndProducts."
+          ],
+          "default": "auto",
+          "description": "Dependency-analysis backend."
+        },
+        "matlabViz.includeExternal": {
+          "type": "boolean",
+          "default": false,
+          "description": "Include dependencies outside the analyzed root."
+        },
+        "matlabViz.includeIsolated": {
+          "type": "boolean",
+          "default": true,
+          "description": "Include files with no detected in-scope dependencies."
+        },
+        "matlabViz.watchFiles": {
+          "type": "boolean",
+          "default": false,
+          "description": "Automatically refresh the graph after supported files change."
+        },
+        "matlabViz.project.reanalyzeAll": {
+          "type": "boolean",
+          "default": false,
+          "description": "Force a complete MATLAB Project dependency reanalysis instead of an incremental update."
+        },
+        "matlabViz.project.analyzeReferences": {
+          "type": "boolean",
+          "default": true,
+          "description": "Analyze dependencies inside referenced MATLAB Projects."
+        },
+        "matlabViz.project.analyzeAddOns": {
+          "type": "boolean",
+          "default": false,
+          "description": "Analyze dependencies inside installed add-ons. This can be slow."
+        },
+        "matlabViz.project.analyzeModelParameters": {
+          "type": "boolean",
+          "default": false,
+          "description": "Analyze dependencies introduced by MATLAB code in Simulink model parameters."
+        },
+        "matlabViz.defaultLayout": {
+          "type": "string",
+          "enum": [
+            "force",
+            "hierarchical",
+            "circle",
+            "grid"
+          ],
+          "default": "force",
+          "description": "Initial graph layout."
+        },
+        "matlabViz.maximumFiles": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 50000,
+          "default": 5000,
+          "description": "Maximum number of files accepted in one analysis."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "node esbuild.mjs",
+    "watch": "node esbuild.mjs --watch",
+    "check": "tsc --noEmit",
+    "lint": "eslint src test --ext .ts",
+    "test": "node --test dist-test/test/exporters.test.js",
+    "test:compile": "tsc -p tsconfig.test.json",
+    "package": "npm run check && npm run build && vsce package",
+    "vscode:prepublish": "npm run check && npm run build"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/vscode": "^1.95.0",
+    "@typescript-eslint/eslint-plugin": "^8.18.0",
+    "@typescript-eslint/parser": "^8.18.0",
+    "@vscode/vsce": "^4.1.0",
+    "esbuild": "^0.28.2",
+    "eslint": "^8.57.1",
+    "typescript": "^5.7.2"
+  },
+  "overrides": {
+    "@azure/msal-node": "^7.1.0"
+  }
+}
