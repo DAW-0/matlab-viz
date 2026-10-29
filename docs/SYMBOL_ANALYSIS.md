@@ -35,6 +35,12 @@ back to the MATLAB declaration scanner. Other request timeouts appear as
 analysis notices instead of leaving the operation waiting indefinitely. The
 output log records traversal progress by function, direction, and depth.
 
+If Definition or References returns no result, MATLAB Viz indexes MATLAB
+declarations and parenthesized call sites across the current workspace. This
+syntax fallback recovers local caller/callee edges without requiring language
+server support. Language-service results remain preferred because they can
+disambiguate methods and functions with the same name.
+
 The extension asks the language service to resolve every candidate. Array indexing such as `values(index)` can resemble a function call syntactically, but its definition normally resolves inside the current function and is discarded as a self-edge.
 
 ## Function and variable references

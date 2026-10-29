@@ -35,6 +35,13 @@ interface LocatedCall {
   location: vscode.Location;
 }
 
+interface WorkspaceSyntaxIndex {
+  symbolsByName: Map<string, ResolvedSymbol[]>;
+  symbolsByUri: Map<string, ResolvedSymbol[]>;
+  fileSymbolsByUri: Map<string, ResolvedSymbol>;
+  callsByName: Map<string, vscode.Location[]>;
+}
+
 const FUNCTION_KINDS = new Set([
   vscode.SymbolKind.Function,
   vscode.SymbolKind.Method,
@@ -43,6 +50,27 @@ const FUNCTION_KINDS = new Set([
 
 function rangeSize(range: vscode.Range): number {
   return (range.end.line - range.start.line) * 1_000_000 + range.end.character - range.start.character;
+}
+
+function lineStarts(source: string): number[] {
+  const starts = [0];
+  for (let index = 0; index < source.length; index += 1) {
+    if (source.charCodeAt(index) === 10) starts.push(index + 1);
+  }
+  return starts;
+}
+
+function positionAtOffset(starts: number[], offset: number): vscode.Position {
+  let low = 0;
+  let high = starts.length - 1;
+  while (low <= high) {
+    const middle = Math.floor((low + high) / 2);
+    const start = starts[middle] ?? 0;
+    if (start <= offset) low = middle + 1;
+    else high = middle - 1;
+  }
+  const line = Math.max(0, high);
+  return new vscode.Position(line, offset - (starts[line] ?? 0));
 }
 
 function symbolId(symbol: ResolvedSymbol): string {
@@ -63,6 +91,7 @@ function isDocumentSymbol(value: vscode.DocumentSymbol | vscode.SymbolInformatio
 export class SymbolAnalyzer {
   private readonly documentCache = new Map<string, Promise<vscode.TextDocument>>();
   private readonly symbolCache = new Map<string, Promise<ResolvedSymbol[]>>();
+  private workspaceIndex: Promise<WorkspaceSyntaxIndex> | undefined;
   private requestTimeoutMilliseconds = 20_000;
 
   public constructor(private readonly output: vscode.OutputChannel) {}
@@ -300,13 +329,28 @@ export class SymbolAnalyzer {
       if (token.isCancellationRequested) throw new vscode.CancellationError();
       const position = document.positionAt(candidate.nameOffset);
       const definitions = await this.definitions(document.uri, position, token);
+      let resolved = false;
       for (const definition of definitions) {
         if (!options.includeExternal && !vscode.workspace.getWorkspaceFolder(definition.uri)) continue;
         const target = await this.containingFunction(definition.uri, definition.range.start, token);
         if (!target || symbolId(target) === symbolId(symbol)) continue;
         const id = symbolId(target);
         if (!calls.has(id)) calls.set(id, { symbol: target, location: new vscode.Location(document.uri, new vscode.Range(position, position.translate(0, candidate.name.length))) });
+        resolved = true;
         break;
+      }
+      if (!resolved) {
+        const fallbackTargets = await this.workspaceTargets(candidate.name, token);
+        for (const target of fallbackTargets) {
+          if (symbolId(target) === symbolId(symbol)) continue;
+          const id = symbolId(target);
+          if (!calls.has(id)) {
+            calls.set(id, {
+              symbol: target,
+              location: new vscode.Location(document.uri, new vscode.Range(position, position.translate(0, candidate.name.length)))
+            });
+          }
+        }
       }
     }
     return [...calls.values()];
@@ -326,6 +370,11 @@ export class SymbolAnalyzer {
       if (!caller || symbolId(caller) === symbolId(symbol)) continue;
       const id = symbolId(caller);
       if (!calls.has(id)) calls.set(id, { symbol: caller, location: reference });
+    }
+    for (const fallback of await this.workspaceIncomingCalls(symbol.name, token)) {
+      if (symbolId(fallback.symbol) === symbolId(symbol)) continue;
+      const id = symbolId(fallback.symbol);
+      if (!calls.has(id)) calls.set(id, fallback);
     }
     return [...calls.values()];
   }
@@ -361,6 +410,116 @@ export class SymbolAnalyzer {
       ),
       token
     )) ?? [];
+  }
+
+  private async workspaceTargets(name: string, token: vscode.CancellationToken): Promise<ResolvedSymbol[]> {
+    const index = await this.workspaceSyntaxIndex(token);
+    const unqualified = name.slice(name.lastIndexOf(".") + 1);
+    return index.symbolsByName.get(unqualified.toLowerCase()) ?? [];
+  }
+
+  private async workspaceIncomingCalls(
+    name: string,
+    token: vscode.CancellationToken
+  ): Promise<LocatedCall[]> {
+    const index = await this.workspaceSyntaxIndex(token);
+    const result: LocatedCall[] = [];
+    for (const location of index.callsByName.get(name.toLowerCase()) ?? []) {
+      if (token.isCancellationRequested) throw new vscode.CancellationError();
+      const candidates = (index.symbolsByUri.get(location.uri.toString()) ?? [])
+        .filter((symbol) => symbol.range.contains(location.range.start))
+        .sort((first, second) => rangeSize(first.range) - rangeSize(second.range));
+      const caller = candidates[0] ?? index.fileSymbolsByUri.get(location.uri.toString());
+      if (caller) result.push({ symbol: caller, location });
+    }
+    return result;
+  }
+
+  private workspaceSyntaxIndex(token: vscode.CancellationToken): Promise<WorkspaceSyntaxIndex> {
+    if (!this.workspaceIndex) this.workspaceIndex = this.buildWorkspaceSyntaxIndex(token);
+    return this.workspaceIndex;
+  }
+
+  private async buildWorkspaceSyntaxIndex(token: vscode.CancellationToken): Promise<WorkspaceSyntaxIndex> {
+    const started = Date.now();
+    const discovered = await this.providerRequest(
+      "MATLAB workspace file discovery",
+      vscode.workspace.findFiles("**/*.m", "**/{.git,node_modules,dist,dist-test}/**", 5_001, token),
+      token
+    );
+    const files = discovered.slice(0, 5_000);
+    if (discovered.length > files.length) {
+      this.output.appendLine("[MATLAB Viz] MATLAB syntax fallback limited workspace indexing to 5000 files.");
+    }
+    const index: WorkspaceSyntaxIndex = {
+      symbolsByName: new Map(),
+      symbolsByUri: new Map(),
+      fileSymbolsByUri: new Map(),
+      callsByName: new Map()
+    };
+    for (const uri of files) {
+      if (token.isCancellationRequested) throw new vscode.CancellationError();
+      let source: string;
+      try {
+        source = Buffer.from(await vscode.workspace.fs.readFile(uri)).toString("utf8");
+      } catch (error) {
+        this.output.appendLine(
+          `[MATLAB Viz] Could not read ${this.relativePath(uri)} for syntax fallback: ${error instanceof Error ? error.message : String(error)}`
+        );
+        continue;
+      }
+      const starts = lineStarts(source);
+      const symbols: ResolvedSymbol[] = [];
+      for (const declaration of findMatlabDeclarations(source)) {
+        const selectionStart = positionAtOffset(starts, declaration.nameOffset);
+        const symbol: ResolvedSymbol = {
+          name: declaration.name,
+          kind: declaration.kind === "class" ? vscode.SymbolKind.Class : vscode.SymbolKind.Function,
+          uri,
+          range: new vscode.Range(
+            positionAtOffset(starts, declaration.startOffset),
+            positionAtOffset(starts, declaration.endOffset)
+          ),
+          selectionRange: new vscode.Range(
+            selectionStart,
+            selectionStart.translate(0, declaration.name.length)
+          )
+        };
+        symbols.push(symbol);
+        const key = symbol.name.toLowerCase();
+        const named = index.symbolsByName.get(key) ?? [];
+        named.push(symbol);
+        index.symbolsByName.set(key, named);
+      }
+      index.symbolsByUri.set(uri.toString(), symbols);
+      index.fileSymbolsByUri.set(uri.toString(), {
+        name: path.basename(uri.fsPath),
+        kind: vscode.SymbolKind.File,
+        uri,
+        range: new vscode.Range(new vscode.Position(0, 0), positionAtOffset(starts, source.length)),
+        selectionRange: new vscode.Range(new vscode.Position(0, 0), new vscode.Position(0, 0))
+      });
+      for (const candidate of findMatlabCallCandidates(source)) {
+        const start = positionAtOffset(starts, candidate.nameOffset);
+        const location = new vscode.Location(
+          uri,
+          new vscode.Range(start, start.translate(0, candidate.name.length))
+        );
+        const keys = new Set([
+          candidate.name.toLowerCase(),
+          candidate.name.slice(candidate.name.lastIndexOf(".") + 1).toLowerCase()
+        ]);
+        for (const key of keys) {
+          const calls = index.callsByName.get(key) ?? [];
+          calls.push(location);
+          index.callsByName.set(key, calls);
+        }
+      }
+    }
+    this.output.appendLine(
+      `[MATLAB Viz] MATLAB syntax fallback indexed ${files.length} files in ${((Date.now() - started) / 1_000).toFixed(1)} seconds.`
+    );
+    return index;
   }
 
   private async containingFunction(
@@ -507,6 +666,7 @@ export class SymbolAnalyzer {
     if (parentToken.isCancellationRequested) throw new vscode.CancellationError();
     this.documentCache.clear();
     this.symbolCache.clear();
+    this.workspaceIndex = undefined;
     this.requestTimeoutMilliseconds = Math.max(1, options.requestTimeoutSeconds) * 1_000;
     const analysisTimeoutMilliseconds = Math.max(1, options.analysisTimeoutSeconds) * 1_000;
     const source = new vscode.CancellationTokenSource();

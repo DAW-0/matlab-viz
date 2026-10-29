@@ -4,6 +4,14 @@ All notable changes to MATLAB Viz will be documented here.
 
 ## [Unreleased]
 
+## [0.3.2]
+
+### Fixed
+
+- Empty Definition and References responses now fall back to a workspace-wide MATLAB declaration and call-site index.
+- Local caller/callee edges are recovered when the MATLAB language provider silently returns no symbol relationships.
+- Qualified calls participate in fallback matching by their method name.
+
 ## [0.3.1]
 
 ### Fixed
