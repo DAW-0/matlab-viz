@@ -29,7 +29,7 @@ npm run package
 The package script type-checks and bundles the extension before invoking `vsce`. Install the resulting VSIX with:
 
 ```powershell
-codium --install-extension .\matlab-viz-0.3.5.vsix
+codium --install-extension .\matlab-viz-0.3.8.vsix
 ```
 
 ## MATLAB-only validation
@@ -133,8 +133,8 @@ missing Project files, and all nine standalone export artifacts, including
 vector SVG, raster PNG, and MAT report reloading.
 
 See [acceptance findings](ACCEPTANCE_TESTS.md) for the manual test history and
-remaining work. A passing data-export regression does not imply that the
-known webview SVG/PNG framing and layout defects are repaired.
+remaining work. Data-export tests and actual browser-renderer tests cover
+different paths; run both when changing visual exports.
 
 ## Persistent-window restoration tests
 
@@ -221,6 +221,58 @@ captured clicks/double-clicks, drag DOM stability, panning, and extreme zoom.
 The debugger adapter auto-attaches recursively to nested editor frames and
 reconnects closed targets. This is test infrastructure only, not an extension
 debugging port or shipped application dependency.
+
+## Reference and folder-lookup accuracy tests
+
+The deterministic suite includes the production reference index/resolver/merge
+logic with adapted provider APIs. It covers declaration-only and partial
+providers, local/private/package conflicts, obvious array bindings, recursion,
+dirty buffers, Unicode masks, cancellation, node caps, and incomplete indexes.
+It also verifies resource-scoped folder lookup configuration and notification
+severity. There are 74 deterministic tests and one opt-in real MATLAB runner
+test in 0.3.8; the MATLAB-only suite contains 13 tests.
+
+The native `accuracy` phase registers real editor Definition/References
+providers and executes the extension's commands. It creates its own fixture
+workspace under a fresh artifact root and deliberately refuses to overwrite
+existing files. `-WorkspaceRoot` must point to that child workspace:
+
+```powershell
+$accuracyRoot = 'E:\_Git\matlab-viz\.tools\validation\0.3.8\accuracy-new-run'
+New-Item -ItemType Directory -Path "$accuracyRoot\workspace"
+& .\test\host\runRestoration.ps1 `
+  -FixturesRoot 'E:\_Git\matlab-viz\.tools\validation\0.3.5\host-fixtures' `
+  -ArtifactsRoot $accuracyRoot `
+  -WorkspaceRoot "$accuracyRoot\workspace" `
+  -Phases accuracy
+```
+
+This phase checks grouped syntax recovery, mixed evidence, variable boundaries,
+hung-provider warning/recovery, actual MATLAB workspace/explicit lookup roots,
+external exclusion, opt-out, selected-source file limits, and retry after an
+invalid lookup root without dismissing the error notification. Its real output
+channel logs are retained under the isolated profile.
+
+The separate `repository-accuracy` phase is a read-only check of the existing
+WEST checkout (not a general repository fixture). Pass its workspace root and
+a different fresh artifact directory. It expects the known heating-control
+caller at line 134 and `tar_file_path` occurrences at lines 9, 10, 14, and 16;
+it checks the two inspected sources are byte-for-byte unchanged. It does not
+modify user settings or user source files. The normal fixture root is still
+required by the launcher.
+
+For the actual MATLAB lookup comparison, run this helper in a separate MATLAB
+process, with `matlab` and `test/matlab` on the path:
+
+```matlab
+summary = validateMatlabVizAccuracy(artifactsRoot, westRepositoryRoot);
+assert(summary.passed)
+```
+
+It compares selected-folder analysis on a clean MATLAB path, with workspace
+lookup, and with external nodes excluded; it also writes the standalone report
+artifacts. This is checkout-specific validation, not a portable CI assertion.
+All test helpers, profiles, logs, and artifacts are excluded from the VSIX.
 
 ## Release checklist
 

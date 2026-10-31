@@ -2,6 +2,7 @@ import * as path from "node:path";
 import * as vscode from "vscode";
 import type { SymbolAnalysisOptions } from "./configuration";
 import { findMatlabCallCandidates, findMatlabDeclarations } from "./core/matlabSyntax";
+import { findMatlabReferenceCandidates, matlabBoundNames, resolveFunctionReference } from "./core/matlabReferences";
 import type { AnalysisProblem, DependencyGraph, GraphEdge, GraphNode } from "./model";
 
 export type CallDirection = "both" | "incoming" | "outgoing";
@@ -40,6 +41,9 @@ interface WorkspaceSyntaxIndex {
   symbolsByUri: Map<string, ResolvedSymbol[]>;
   fileSymbolsByUri: Map<string, ResolvedSymbol>;
   callsByName: Map<string, vscode.Location[]>;
+  referencesByName: Map<string, Array<{ name: string; location: vscode.Location }>>;
+  sourcesByUri: Map<string, string>;
+  problems: AnalysisProblem[];
 }
 
 const FUNCTION_KINDS = new Set([
@@ -75,6 +79,23 @@ function positionAtOffset(starts: number[], offset: number): vscode.Position {
 
 function symbolId(symbol: ResolvedSymbol): string {
   return `${symbol.uri.toString()}#${symbol.selectionRange.start.line}:${symbol.selectionRange.start.character}:${symbol.name}`;
+}
+
+function plainName(symbol: ResolvedSymbol): string {
+  return symbol.name.split("(")[0]!.trim().split(".").at(-1)!;
+}
+
+function sameFile(a: vscode.Uri, b: vscode.Uri): boolean {
+  return process.platform === "win32" ? a.fsPath.toLowerCase() === b.fsPath.toLowerCase() : a.fsPath === b.fsPath;
+}
+
+function sameFunction(a: ResolvedSymbol, b: ResolvedSymbol): boolean {
+  return sameFile(a.uri, b.uri) && plainName(a) === plainName(b) && a.selectionRange.start.line === b.selectionRange.start.line;
+}
+
+function referenceKey(location: vscode.Location): string {
+  const file = process.platform === "win32" ? location.uri.fsPath.toLowerCase() : location.uri.fsPath;
+  return `${file}\n${location.range.start.line}:${location.range.start.character}`;
 }
 
 function locationFromDefinition(definition: vscode.Location | vscode.LocationLink): vscode.Location {
@@ -220,46 +241,99 @@ export class SymbolAnalyzer {
     const wordRange = document.getWordRangeAtPosition(position, /[A-Za-z]\w*/);
     if (!wordRange) throw new Error("No MATLAB symbol was found at the cursor.");
     const selectedName = document.getText(wordRange);
-    const definitions = await this.definitions(uri, position, token);
+    const problems: AnalysisProblem[] = [];
+    let definitions: vscode.Location[] = [];
+    try { definitions = await this.definitions(uri, position, token); }
+    catch (error) {
+      if (error instanceof vscode.CancellationError) throw error;
+      problems.push({ file: uri.fsPath, severity: "warning", message: `Reference definition lookup: ${error instanceof Error ? error.message : String(error)}` });
+    }
     const definition = definitions[0] ?? new vscode.Location(uri, wordRange);
-    const central = await this.symbolAtDefinition(definition, selectedName, token);
+    let central = await this.symbolAtDefinition(definition, selectedName, token);
+    if (!FUNCTION_KINDS.has(central.kind)) {
+      const candidate = findMatlabReferenceCandidates(document.getText()).find((item) => document.positionAt(item.nameOffset).isEqual(wordRange.start));
+      const containing = await this.containingFunction(uri, position, token);
+      const source = document.getText();
+      const scriptEnd = findMatlabDeclarations(source).find((item) => item.kind === "function")?.startOffset ?? source.length;
+      const bound = matlabBoundNames(containing ? document.getText(containing.range) : source.slice(0, scriptEnd));
+      if (candidate && !bound.has(candidate.name.split(".")[0]!)) {
+        const index = await this.workspaceSyntaxIndex(token);
+        const targets = (index.symbolsByName.get(selectedName.toLowerCase()) ?? [])
+          .filter((symbol) => FUNCTION_KINDS.has(symbol.kind)).map((symbol) => ({ ...symbol, path: symbol.uri.fsPath }));
+        const resolved = resolveFunctionReference(candidate.name, uri.fsPath, targets);
+        if (resolved.target) central = resolved.target;
+        else if (resolved.ambiguous) problems.push({ file: uri.fsPath, severity: "warning", message: `Cannot uniquely resolve function ${candidate.name} at the cursor; same-named functions exist. Place the cursor on the intended declaration.` });
+      }
+    }
     const centralId = symbolId(central);
     const nodes = new Map<string, ResolvedSymbol>([[centralId, central]]);
     const edges = new Map<string, GraphEdge>();
-    const problems: AnalysisProblem[] = [];
-    const references = await this.references(uri, position, token);
-    this.output.appendLine(`[MATLAB Viz] Found ${references.length} references for ${selectedName}.`);
-    const groupedLines = new Map<string, number[]>();
-    for (const reference of references) {
+    let references: vscode.Location[] = [];
+    try { references = await this.references(uri, position, token); }
+    catch (error) {
+      if (error instanceof vscode.CancellationError) throw error;
+      problems.push({ file: uri.fsPath, severity: "warning", message: `Reference lookup: ${error instanceof Error ? error.message : String(error)}` });
+    }
+    const uses = new Map<string, { location: vscode.Location; evidence: Set<string> }>();
+    const addReference = (location: vscode.Location, evidence: string): void => {
+      const key = referenceKey(location);
+      const existing = uses.get(key);
+      if (existing) existing.evidence.add(evidence);
+      else uses.set(key, { location, evidence: new Set([evidence]) });
+    };
+    references.forEach((location) => addReference(location, "language service"));
+    let syntaxLocations = 0;
+    if (FUNCTION_KINDS.has(central.kind)) {
+      const fallback = await this.syntaxFunctionReferences(central, token);
+      for (const location of fallback.locations) {
+        if (!uses.has(referenceKey(location))) syntaxLocations++;
+        addReference(location, "MATLAB syntax");
+      }
+      problems.push(...fallback.problems);
+      if (syntaxLocations) problems.push({ severity: "information", message: `Recovered ${syntaxLocations} function-reference location(s) with conservative MATLAB syntax analysis. Dynamic calls, imports, nested scopes, and object dispatch may require language-service results. Reference edges show their evidence.` });
+    }
+    const declarations = FUNCTION_KINDS.has(central.kind) ? findMatlabDeclarations((await this.document(central.uri, token)).getText()) : [];
+    const centralDocument = declarations.length ? await this.document(central.uri, token) : undefined;
+    const groupedLines = new Map<string, { lines: Set<number>; evidence: Set<string> }>();
+    let omittedContainers = 0;
+    for (const { location: reference, evidence } of uses.values()) {
       if (token.isCancellationRequested) throw new vscode.CancellationError();
       if (!options.includeExternal && !vscode.workspace.getWorkspaceFolder(reference.uri)) continue;
-      const container = await this.containingFunction(reference.uri, reference.range.start, token) ?? await this.fileSymbol(reference.uri, token);
+      if (centralDocument && sameFile(reference.uri, central.uri) && (reference.range.start.isEqual(central.range.start) || declarations.some((item) => {
+        const start = centralDocument.positionAt(item.nameOffset);
+        return item.name === plainName(central) && (reference.range.contains(start) || (reference.range.start.line === start.line
+          && reference.range.start.character >= start.character && reference.range.start.character < start.character + item.name.length));
+      }))) continue;
+      let container = await this.containingFunction(reference.uri, reference.range.start, token) ?? await this.fileSymbol(reference.uri, token);
+      if (FUNCTION_KINDS.has(central.kind) && sameFunction(container, central)) container = central;
       const containerId = symbolId(container);
-      if (containerId === centralId) continue;
+      if (!nodes.has(containerId) && nodes.size >= options.maximumNodes) { omittedContainers++; continue; }
       nodes.set(containerId, container);
       const key = `${containerId}\n${centralId}`;
-      const lines = groupedLines.get(key) ?? [];
-      lines.push(reference.range.start.line + 1);
-      groupedLines.set(key, lines);
-      if (nodes.size >= options.maximumNodes) break;
+      const group = groupedLines.get(key) ?? { lines: new Set<number>(), evidence: new Set<string>() };
+      group.lines.add(reference.range.start.line + 1);
+      evidence.forEach((value) => group.evidence.add(value));
+      groupedLines.set(key, group);
     }
-    for (const [key, lines] of groupedLines) {
+    for (const [key, group] of groupedLines) {
       const [source, target] = key.split("\n") as [string, string];
       edges.set(key, {
         id: `reference-${edges.size + 1}`,
         source,
         target,
         kind: "references",
-        details: `lines ${[...new Set(lines)].sort((a, b) => a - b).join(", ")}`
+        details: `lines ${[...group.lines].sort((a, b) => a - b).join(", ")}; evidence: ${[...group.evidence].sort().join(" + ")}`
       });
     }
-    if (references.length === 0) {
-      problems.push({ message: `The MATLAB language service returned no references for ${selectedName}.`, severity: "information" });
+    if (groupedLines.size === 0) {
+      const variableNote = FUNCTION_KINDS.has(central.kind) ? "" : " Variable tracing requires language-service reference results.";
+      problems.push({ message: `No non-declaration usages were resolved for ${selectedName}. This does not prove it is unused; dynamic references and unsupported syntax may be missing.${variableNote}`, severity: "information" });
     }
-    if (nodes.size >= options.maximumNodes) {
+    if (omittedContainers) {
       problems.push({ message: `Reference graph stopped at ${options.maximumNodes} nodes.`, severity: "warning" });
     }
     const graph = this.makeGraph("references", central, nodes, edges, problems, started);
+    this.output.appendLine(`[MATLAB Viz] Reference evidence for ${selectedName}: raw provider locations=${references.length}, newly recovered syntax locations=${syntaxLocations}, omitted containers=${omittedContainers}.`);
     this.output.appendLine(
       `[MATLAB Viz] Completed reference graph for ${central.name}: ${nodes.size} symbols, ${edges.size} references, ${graph.metadata.durationSeconds.toFixed(1)} seconds.`
     );
@@ -440,11 +514,46 @@ export class SymbolAnalyzer {
     return this.workspaceIndex;
   }
 
+  private async syntaxFunctionReferences(central: ResolvedSymbol, token: vscode.CancellationToken): Promise<{ locations: vscode.Location[]; problems: AnalysisProblem[] }> {
+    const index = await this.workspaceSyntaxIndex(token);
+    const name = plainName(central);
+    const candidates = (index.symbolsByName.get(name.toLowerCase()) ?? [])
+      .filter((symbol) => FUNCTION_KINDS.has(symbol.kind)).map((symbol) => ({ ...symbol, path: symbol.uri.fsPath }));
+    if (!candidates.some((symbol) => sameFunction(symbol, central))) candidates.push({ ...central, name, path: central.uri.fsPath });
+    const locations: vscode.Location[] = [];
+    const bindings = new Map<string, Set<string>>();
+    let ambiguous = 0;
+    for (const call of index.referencesByName.get(name.toLowerCase()) ?? []) {
+      if (token.isCancellationRequested) throw new vscode.CancellationError();
+      const source = index.sourcesByUri.get(call.location.uri.toString());
+      if (source === undefined) continue;
+      const container = (index.symbolsByUri.get(call.location.uri.toString()) ?? [])
+        .filter((symbol) => FUNCTION_KINDS.has(symbol.kind) && symbol.range.contains(call.location.range.start))
+        .sort((a, b) => rangeSize(a.range) - rangeSize(b.range))[0];
+      const key = container ? symbolId(container) : call.location.uri.toString();
+      let bound = bindings.get(key);
+      if (!bound) {
+        const starts = lineStarts(source);
+        const offset = (position: vscode.Position) => (starts[position.line] ?? source.length) + position.character;
+        const scopeSource = container ? source.slice(offset(container.range.start), offset(container.range.end))
+          : source.slice(0, findMatlabDeclarations(source).find((item) => item.kind === "function")?.startOffset ?? source.length);
+        bound = matlabBoundNames(scopeSource); bindings.set(key, bound);
+      }
+      if (bound.has(call.name.split(".")[0]!)) continue;
+      const resolved = resolveFunctionReference(call.name, call.location.uri.fsPath, candidates);
+      if (resolved.ambiguous) ambiguous++;
+      if (resolved.target && sameFunction(resolved.target, central)) locations.push(call.location);
+    }
+    const problems = [...index.problems];
+    if (ambiguous) problems.push({ severity: "warning", message: `Omitted ${ambiguous} potentially matching reference(s) to ${name}: MATLAB syntax could not choose uniquely between same-named functions. Language-service resolution or a more specific declaration is required.` });
+    return { locations, problems };
+  }
+
   private async buildWorkspaceSyntaxIndex(token: vscode.CancellationToken): Promise<WorkspaceSyntaxIndex> {
     const started = Date.now();
     const discovered = await this.providerRequest(
       "MATLAB workspace file discovery",
-      vscode.workspace.findFiles("**/*.m", "**/{.git,node_modules,dist,dist-test}/**", 5_001, token),
+      vscode.workspace.findFiles("**/*.m", "**/{.git,.tools,.vscode-test,node_modules,dist,dist-test}/**", 5_001, token),
       token
     );
     const files = discovered.slice(0, 5_000);
@@ -455,19 +564,26 @@ export class SymbolAnalyzer {
       symbolsByName: new Map(),
       symbolsByUri: new Map(),
       fileSymbolsByUri: new Map(),
-      callsByName: new Map()
+      callsByName: new Map(),
+      referencesByName: new Map(),
+      sourcesByUri: new Map(),
+      problems: []
     };
+    if (discovered.length > files.length) index.problems.push({ severity: "warning", message: "MATLAB reference syntax fallback indexed only the first 5000 workspace files; results may be incomplete." });
     for (const uri of files) {
       if (token.isCancellationRequested) throw new vscode.CancellationError();
       let source: string;
       try {
-        source = Buffer.from(await vscode.workspace.fs.readFile(uri)).toString("utf8");
+        const opened = vscode.workspace.textDocuments?.find((document) => sameFile(document.uri, uri));
+        source = opened?.getText() ?? Buffer.from(await vscode.workspace.fs.readFile(uri)).toString("utf8");
       } catch (error) {
         this.output.appendLine(
           `[MATLAB Viz] Could not read ${this.relativePath(uri)} for syntax fallback: ${error instanceof Error ? error.message : String(error)}`
         );
+        index.problems.push({ file: uri.fsPath, severity: "warning", message: "Could not read this file for MATLAB reference syntax analysis; results may be incomplete." });
         continue;
       }
+      index.sourcesByUri.set(uri.toString(), source);
       const starts = lineStarts(source);
       const symbols: ResolvedSymbol[] = [];
       for (const declaration of findMatlabDeclarations(source)) {
@@ -514,6 +630,14 @@ export class SymbolAnalyzer {
           calls.push(location);
           index.callsByName.set(key, calls);
         }
+      }
+      for (const candidate of findMatlabReferenceCandidates(source)) {
+        const start = positionAtOffset(starts, candidate.nameOffset);
+        const key = candidate.name.slice(candidate.name.lastIndexOf(".") + 1).toLowerCase();
+        const references = index.referencesByName.get(key) ?? [];
+        references.push({ name: candidate.name, location: new vscode.Location(uri,
+          new vscode.Range(start, start.translate(0, key.length))) });
+        index.referencesByName.set(key, references);
       }
     }
     this.output.appendLine(

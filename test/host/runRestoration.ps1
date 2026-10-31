@@ -3,7 +3,8 @@ param(
     [string]$ArtifactsRoot,
     [string]$EditorExecutable,
     [string]$GraphFile,
-    [ValidateSet('prepare-call', 'restore-call', 'reload-call', 'prepare-reference', 'restore-reference', 'reload-reference', 'provider-timeout', 'visual')]
+    [string]$WorkspaceRoot,
+    [ValidateSet('prepare-call', 'restore-call', 'reload-call', 'prepare-reference', 'restore-reference', 'reload-reference', 'provider-timeout', 'visual', 'accuracy', 'repository-accuracy')]
     [string[]]$Phases = @('prepare-call', 'restore-call', 'reload-call', 'prepare-reference', 'restore-reference', 'reload-reference', 'provider-timeout')
 )
 
@@ -14,6 +15,8 @@ if (-not (Test-Path -LiteralPath $EditorExecutable)) { throw 'Specify the instal
 if (-not $ArtifactsRoot) { $ArtifactsRoot = Join-Path $repositoryRoot '.tools\validation\0.3.6' }
 $ArtifactsRoot = [System.IO.Path]::GetFullPath($ArtifactsRoot)
 $FixturesRoot = [System.IO.Path]::GetFullPath($FixturesRoot)
+if (-not $WorkspaceRoot) { $WorkspaceRoot = Join-Path $FixturesRoot 'project' }
+$WorkspaceRoot = (Resolve-Path -LiteralPath $WorkspaceRoot).Path
 if (-not (Test-Path -LiteralPath (Join-Path $FixturesRoot 'project\entry.m'))) {
     throw 'Prepare the host fixtures with createMatlabVizHostFixtures before running this script.'
 }
@@ -43,7 +46,7 @@ try {
             '--disable-extensions', "--remote-debugging-port=$port", "--user-data-dir=$env:MATLAB_VIZ_HOST_PROFILE",
             "--extensions-dir=$(Join-Path $ArtifactsRoot 'vscodium-extensions')", "--extensionDevelopmentPath=$repositoryRoot",
             "--extensionDevelopmentPath=$(Join-Path $repositoryRoot 'test\host\extension')",
-            (Join-Path $FixturesRoot 'project'))
+            $WorkspaceRoot)
         $quotedArguments = @($arguments | ForEach-Object {
             if ($_.Contains('"')) { throw 'A test argument contains an unsupported quotation mark.' }
             '"' + $_ + '"'

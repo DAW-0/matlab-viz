@@ -119,16 +119,34 @@ verifyGreaterThan(testCase, imageInfo.Width, 1000);
 verifyGreaterThan(testCase, imageInfo.Height, 500);
 end
 
+function testFolderLookupRootsReachSiblingWithoutExpandingSources(testCase)
+fixture = testCase.TestData.fixture;
+selected = fullfile(fixture, "selected"); shared = fullfile(fixture, "shared");
+mkdir(selected); mkdir(shared);
+writeFunction(selected, "matlabVizPathEntry", "value = matlabVizPathLeaf();");
+writeFunction(shared, "matlabVizPathLeaf", "value = 42;");
+[document, raw] = analyzeFixture(selected, searchRoots=fixture, includeExternal=true);
+verifyArrayCollections(testCase, raw);
+verifyEqual(testCase, numel(document.nodes), 2);
+verifyEqual(testCase, numel(document.edges), 1);
+verifyEqual(testCase, nnz([document.nodes.external]), 1);
+verifyTrue(testCase, isfield(document.metadata, "searchRoots"));
+verifyTrue(testCase, contains(raw, '"searchRoots":['));
+end
+
 function [document, raw] = analyzeFixture(fixture, options)
 arguments
     fixture (1, 1) string
     options.mode (1, 1) string = "folder"
     options.includeIsolated (1, 1) logical = true
+    options.includeExternal (1, 1) logical = false
+    options.searchRoots (1, :) string = strings(1, 0)
 end
-settings = struct("mode", options.mode, "includeExternal", false, ...
+settings = struct("mode", options.mode, "includeExternal", options.includeExternal, ...
     "includeIsolated", options.includeIsolated, "maximumFiles", 5000, ...
     "reanalyzeAll", true, "analyzeReferences", false, "analyzeAddOns", false, ...
     "analyzeModelParameters", false);
+settings.searchRoots = cellstr(options.searchRoots);
 optionsPath = fullfile(fixture, "analysis-options.json");
 outputPath = fullfile(fixture, "analysis-output.json");
 writelines(jsonencode(settings), optionsPath);

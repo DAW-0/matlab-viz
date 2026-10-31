@@ -43,6 +43,7 @@ const NON_CALL_KEYWORDS = new Set([
 export function matlabCodeMask(source: string): Uint8Array {
   const mask = new Uint8Array(source.length);
   let state: "code" | "single" | "double" | "comment" | "blockComment" = "code";
+  let arrayDepth = 0;
   for (let index = 0; index < source.length; index += 1) {
     const character = source[index] ?? "";
     const next = source[index + 1] ?? "";
@@ -62,7 +63,8 @@ export function matlabCodeMask(source: string): Uint8Array {
       continue;
     }
     if (state === "single") {
-      if (character === "'" && next === "'") {
+      if (character === "\n") { state = "code"; mask[index] = 1; }
+      else if (character === "'" && next === "'") {
         index += 1;
       } else if (character === "'") {
         state = "code";
@@ -70,7 +72,8 @@ export function matlabCodeMask(source: string): Uint8Array {
       continue;
     }
     if (state === "double") {
-      if (character === '"' && next === '"') {
+      if (character === "\n") { state = "code"; mask[index] = 1; }
+      else if (character === '"' && next === '"') {
         index += 1;
       } else if (character === '"') {
         state = "code";
@@ -96,9 +99,14 @@ export function matlabCodeMask(source: string): Uint8Array {
       mask[index] = 0;
       continue;
     }
+    if (character === "[") arrayDepth++;
+    if (character === "]") arrayDepth = Math.max(0, arrayDepth - 1);
     if (character === "'") {
-      const prefix = source.slice(0, index).match(/\S(?=\s*$)/)?.[0];
-      const looksLikeTranspose = prefix !== undefined && /[\w\])}.]/.test(prefix);
+      const linePrefix = source.slice(source.lastIndexOf("\n", index) + 1, index);
+      const prefix = linePrefix.match(/\S(?=\s*$)/)?.[0];
+      const commandString = /^\s*[A-Za-z]\w*(?:\.[A-Za-z]\w*)*[ \t]+[^[\]{}=()+*/\\^:<>~&|;'"\r\n]*$/.test(linePrefix);
+      const arrayString = arrayDepth > 0 && /\s/.test(source[index - 1] ?? "");
+      const looksLikeTranspose = !commandString && !arrayString && prefix !== undefined && /[\w\])}.]/.test(prefix);
       if (!looksLikeTranspose) {
         state = "single";
         mask[index] = 0;
@@ -112,7 +120,7 @@ export function findMatlabCallCandidates(source: string, startOffset = 0, endOff
   const mask = matlabCodeMask(source);
   const candidates: CallCandidate[] = [];
   const seen = new Set<number>();
-  const expression = /@([A-Za-z]\w*)|((?:[A-Za-z]\w*\.)*([A-Za-z]\w*))\s*\(/g;
+  const expression = /@((?:[A-Za-z]\w*\.)*[A-Za-z]\w*)|((?:[A-Za-z]\w*\.)*([A-Za-z]\w*))\s*\(/g;
   expression.lastIndex = Math.max(0, startOffset);
   for (let match = expression.exec(source); match && match.index < endOffset; match = expression.exec(source)) {
     const fullName = match[1] ?? match[2];

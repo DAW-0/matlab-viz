@@ -36,6 +36,7 @@ The returned structure contains:
 | `problems` | Nonfatal per-file failures and missing dependencies. |
 | `errors` | Compatibility view of source, identifier, and message columns. |
 | `artifacts` | Paths of any files written by this invocation. |
+| `searchRoots` | Canonical additional lookup roots used by this invocation. |
 
 Use standard graph operations directly:
 
@@ -78,6 +79,7 @@ and MAT report.
 | `OutputDirectory` | `""` | Directory for artifacts; no files are written when empty. |
 | `IncludeExternal` | `false` | Retain dependencies outside the source root. |
 | `IncludeIsolated` | `true` | Retain source files with no retained edges. |
+| `SearchRoots` | `strings(1,0)` | Additional lookup trees, not additional analyzed source trees. |
 | `Extensions` | MATLAB/Simulink defaults | Source extensions to discover recursively. |
 | `MaximumFiles` | `5000` | Abort before scanning an unexpectedly large tree. |
 | `Render` | `true` | Write MATLAB-rendered SVG and PNG files with artifacts. |
@@ -93,6 +95,33 @@ report = analyzeMatlabFileDependencies(sourceRoot, ...
     MaximumFiles=10000, ...
     Print=false);
 ```
+
+## Lookup roots and analysis scope
+
+When analyzing a subtree, provide the containing repository or explicit sibling
+libraries if its functions are not already on MATLAB's path:
+
+```matlab
+report = analyzeMatlabFileDependencies(offlineSimulationRoot, ...
+    SearchRoots=repositoryRoot, ...
+    IncludeExternal=true, ...
+    Render=false);
+```
+
+The analyzer discovers and analyzes source files only under the selected root.
+Lookup trees are temporarily added recursively to resolve those sources' direct
+dependencies. External targets are retained only with `IncludeExternal=true`;
+their own dependencies are not recursively analyzed. `MaximumFiles` limits the
+selected sources, not the lookup tree. The selected tree has precedence over
+additional roots, whose listed order is retained. Duplicate/selected-root entries
+are removed, nonexistent roots fail clearly, and `report.searchRoots` records
+the canonical roots actually used. The original MATLAB path is restored on both
+success and failure. Use smaller lookup roots if adding a large tree is costly.
+
+In the extension, containing-workspace lookup is enabled by default through
+`matlabViz.folder.useWorkspacePath`; `matlabViz.folder.additionalSearchRoots`
+adds explicit roots. These settings affect only the folder backend. The public
+standalone API does not implicitly search a containing repository.
 
 ## Limitations
 

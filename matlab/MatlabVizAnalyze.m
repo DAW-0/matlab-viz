@@ -32,7 +32,7 @@ fprintf("MATLAB Viz: using %s dependency analysis for %s\n", mode, rootPath);
 if mode == "project"
     [nodes, edges, products, problems, projectName] = analyzeProject(rootPath, options);
 else
-    [nodes, edges, products, problems] = analyzeFolder(rootPath, options);
+    [nodes, edges, products, problems, searchRoots] = analyzeFolder(rootPath, options);
     projectName = "";
 end
 
@@ -47,6 +47,9 @@ metadata = struct( ...
     "projectName", projectName, ...
     "nodeCount", numel(nodes), ...
     "edgeCount", numel(edges));
+if mode == "folder"
+    metadata.searchRoots = cellstr(searchRoots);
+end
 
 % Cell arrays preserve the JSON collection contract at every cardinality.
 % A scalar MATLAB struct otherwise becomes an object instead of [object].
@@ -116,16 +119,27 @@ problems = problemsForNodes(nodes);
 projectName = string(project.Name);
 end
 
-function [nodes, edges, products, problems] = analyzeFolder(rootPath, options)
+function [nodes, edges, products, problems, searchRoots] = analyzeFolder(rootPath, options)
+searchRoots = folderSearchRoots(options);
+fprintf("MATLAB Viz: requested folder lookup roots (%d): %s\n", numel(searchRoots), strjoin(searchRoots, "; "));
 report = analyzeMatlabFileDependencies(rootPath, ...
+    SearchRoots=searchRoots, ...
     IncludeExternal=logical(options.includeExternal), ...
     IncludeIsolated=logical(options.includeIsolated), ...
     MaximumFiles=double(options.maximumFiles), ...
     Render=false, Print=false);
+searchRoots = report.searchRoots;
 nodes = nodesFromStandaloneReport(report.nodes);
 edges = edgesFromStandaloneReport(report.edges);
 products = productsFromStandaloneReport(report.products);
 problems = problemsFromStandaloneReport(report.problems);
+end
+
+function roots = folderSearchRoots(options)
+roots = strings(1, 0);
+if isfield(options, "searchRoots")
+    roots = reshape(string(options.searchRoots), 1, []);
+end
 end
 
 function nodes = nodesFromStandaloneReport(nodeTable)

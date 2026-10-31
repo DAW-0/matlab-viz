@@ -2,7 +2,7 @@
   "name": "matlab-viz",
   "displayName": "MATLAB Viz",
   "description": "Interactive MATLAB and Simulink dependency graphs powered by MATLAB's native dependency analysis.",
-  "version": "0.3.7",
+  "version": "0.3.8",
   "publisher": "daw-0",
   "private": true,
   "repository": {
@@ -181,6 +181,17 @@
           "type": "boolean",
           "default": false,
           "description": "Include dependencies outside the analyzed root."
+        },
+        "matlabViz.folder.useWorkspacePath": {
+          "type": "boolean",
+          "default": true,
+          "description": "For folder analysis, use the containing workspace folder and its subfolders to resolve dependencies. This does not expand the selected analysis root or enable external-node display."
+        },
+        "matlabViz.folder.additionalSearchRoots": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "default": [],
+          "description": "Additional recursive MATLAB lookup roots for folder analysis. Relative paths are resolved against the containing workspace, or the analysis root outside a workspace. The selected root takes precedence; these roots do not add analyzed source files."
         },
         "matlabViz.includeIsolated": {
           "type": "boolean",

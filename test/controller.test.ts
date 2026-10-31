@@ -13,10 +13,11 @@ function graph(root: string, type: "files" | "call-hierarchy" | "references" = "
 }
 
 function controllerHarness(options: { cachedGraph?: DependencyGraph; badCache?: string; readGate?: Promise<void>;
-  files?: Map<string, Uint8Array>; failCacheWrites?: boolean } = {}) {
+  files?: Map<string, Uint8Array>; failCacheWrites?: boolean; graphProblems?: DependencyGraph["problems"] } = {}) {
   const commands = new Map<string, (...args: any[]) => Promise<void> | void>();
   const log: string[] = [];
   const errors: string[] = [];
+  const information: string[] = [], warnings: string[] = [];
   const notices: Array<(action?: string) => void> = [];
   const calls: string[] = [];
   const symbolCalls: Array<{ direction?: string; depth?: number; seed?: any; anchor?: any }> = [];
@@ -59,7 +60,8 @@ function controllerHarness(options: { cachedGraph?: DependencyGraph; badCache?: 
         registerWebviewPanelSerializer: (_type: string, value: unknown) => { serializer = value; return disposable; },
         withProgress: (_options: unknown, action: (progress: unknown, token: unknown) => Promise<void>) => action({ report() {} }, token),
         showErrorMessage: (message: string) => { errors.push(message); return new Promise<string | undefined>((resolve) => notices.push(resolve)); },
-        showWarningMessage: async () => undefined, showInformationMessage: (s: string) => log.push(s)
+        showWarningMessage: async (s: string) => { warnings.push(s); return undefined; },
+        showInformationMessage: async (s: string) => { log.push(s); information.push(s); return undefined; }
       },
       commands: { registerCommand: (name: string, action: (...args: any[]) => Promise<void> | void) => { commands.set(name, action); return disposable; } },
       workspace: {
@@ -82,7 +84,7 @@ function controllerHarness(options: { cachedGraph?: DependencyGraph; badCache?: 
     },
     "./configuration": { readAnalysisOptions: () => ({}), readSymbolAnalysisOptions: () => ({ maximumDepth: 3 }) },
     "./graphPanel": { GraphPanel: class { constructor() { return panel; } }, SidebarProvider: class { setGraph() {} } },
-    "./matlabRunner": { runMatlabAnalysis: async (root: string) => { calls.push(root); if (failure) throw failure; return { graph: graph(root) }; } },
+    "./matlabRunner": { runMatlabAnalysis: async (root: string) => { calls.push(root); if (failure) throw failure; const value = graph(root); value.problems = options.graphProblems ?? []; return { graph: value }; } },
     "./symbolAnalyzer": { SymbolAnalyzer: class {
       async analyzeCallHierarchy(direction: string, options: { maximumDepth: number }, _token: unknown, previous?: unknown) {
         symbolCalls.push({ direction, depth: options.maximumDepth, seed: previous });
@@ -98,7 +100,7 @@ function controllerHarness(options: { cachedGraph?: DependencyGraph; badCache?: 
   };
   const module = loadExtensionModule<{ activate: (context: unknown) => Promise<void> }>("extension.js", adapters);
   const activation = module.activate({ extensionUri: fileUri("/extension"), globalStorageUri: fileUri("/cache"), subscriptions: [] });
-  return { commands, panel, errors, notices, calls, log, status, token, fileUri, files, symbolCalls, restorations, activation,
+  return { commands, panel, errors, notices, calls, log, status, token, fileUri, files, symbolCalls, restorations, activation, information, warnings,
     serializer: () => serializer, showCount: () => showCount,
     fail(error?: Error) { failure = error; }, outputShown: () => outputShown };
 }
@@ -114,6 +116,15 @@ async function invoke(harness: ReturnType<typeof controllerHarness>, command: st
     if (timer) clearTimeout(timer);
   }
 }
+
+test("informational recovery notices do not become warning notifications", async () => {
+  for (const severity of ["information", "warning"] as const) {
+    const harness = controllerHarness({ graphProblems: [{ severity, message: "Expected diagnostic" }] });
+    await invoke(harness, "matlabViz.analyzeSelection", harness.fileUri("/root"));
+    assert.equal(harness.information.length, severity === "information" ? 1 : 0);
+    assert.equal(harness.warnings.length, severity === "warning" ? 1 : 0);
+  }
+});
 
 for (const command of ["matlabViz.analyzeSelection", "matlabViz.showCallHierarchy", "matlabViz.traceSymbolReferences"]) {
   test(`${command} releases its lock while an error notification stays open`, async () => {

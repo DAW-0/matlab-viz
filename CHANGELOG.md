@@ -4,6 +4,21 @@ All notable changes to MATLAB Viz will be documented here.
 
 ## [Unreleased]
 
+## [0.3.8]
+
+### Fixed
+
+- Function references merge conservative syntax evidence with empty, declaration-only, or partial language-service results. Declaration ranges are excluded, recursion is retained, and repeated occurrences are grouped/deduplicated without losing source lines.
+- Reference inference checks local/private/package resolution and obvious variable bindings; ambiguous same-named functions produce notices instead of indiscriminate edges. Dirty editor buffers participate in the syntax index.
+- Provider failures/timeouts, incomplete indexes, node truncation, and zero-usage uncertainty are explicit. Informational recovery notices no longer produce warning notifications. Variable tracing remains provider-scoped.
+- Selected-folder analysis can resolve dependencies in its containing workspace without analyzing the whole workspace or broadening the selected source-file limit.
+
+### Added
+
+- Folder lookup settings `matlabViz.folder.useWorkspacePath` and `matlabViz.folder.additionalSearchRoots`, plus standalone `SearchRoots` and recorded lookup metadata. Selected roots retain path precedence; MATLAB path restoration covers errors.
+- Reference-resolution, provider-merge, shadowing, Unicode, dirty-buffer, cancellation, limit, and lookup-scope regressions.
+- Real-editor accuracy/error-retry tests and read-only WEST checks, alongside the repeated visual-export, log, restoration, and real MATLAB regression suites.
+
 ## [0.3.7]
 
 ### Fixed

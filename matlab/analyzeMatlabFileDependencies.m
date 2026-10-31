@@ -23,6 +23,7 @@ function report = analyzeMatlabFileDependencies(sourceRoot, options)
 %     IncludeIsolated - include files with no retained edges (true)
 %     Extensions      - analyzed source extensions
 %     MaximumFiles    - reject larger analyses before scanning (5000)
+%     SearchRoots     - additional recursive lookup roots, not source roots ([])
 %     Render          - write SVG and PNG with other artifacts (true)
 %     Print           - print a concise analysis summary (true)
 %
@@ -38,6 +39,7 @@ arguments
     options.IncludeIsolated (1, 1) logical = true
     options.Extensions (1, :) string = [".m", ".mlx", ".p", ".slx", ".mdl", ".mlapp"]
     options.MaximumFiles (1, 1) double {mustBeInteger, mustBePositive} = 5000
+    options.SearchRoots (1, :) string = strings(1, 0)
     options.Render (1, 1) logical = true
     options.Print (1, 1) logical = true
 end
@@ -58,6 +60,21 @@ end
 
 originalPath = path;
 pathCleanup = onCleanup(@() path(originalPath));
+searchRoots = strings(1, 0);
+for requestedRoot = options.SearchRoots
+    if ~isfolder(requestedRoot)
+        error("MatlabViz:SearchRootNotFound", ...
+            "The additional MATLAB lookup root does not exist: %s", requestedRoot);
+    end
+    lookupRoot = canonicalExistingPath(requestedRoot);
+    if ~any(samePath(searchRoots, lookupRoot)) && ~samePath(sourceRoot, lookupRoot)
+        searchRoots(end + 1) = lookupRoot; %#ok<AGROW>
+    end
+end
+% Earlier lookup roots take precedence; the selected source tree always wins.
+for index = numel(searchRoots):-1:1
+    addpath(genpath(searchRoots(index)));
+end
 addpath(genpath(sourceRoot));
 
 [edgePaths, products, problems] = analyzeFiles( ...
@@ -73,6 +90,7 @@ report.createdOn = string(datetime("now", "TimeZone", "UTC", ...
 report.sourceRoot = sourceRoot;
 report.includeExternal = options.IncludeExternal;
 report.includeIsolated = options.IncludeIsolated;
+report.searchRoots = searchRoots;
 report.extensions = extensions;
 report.durationSeconds = toc(started);
 report.graph = dependencyGraph;

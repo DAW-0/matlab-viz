@@ -75,6 +75,7 @@ export interface GraphMetadata {
   matlabVersion: string;
   durationSeconds: number;
   projectName?: string;
+  searchRoots?: string[];
   nodeCount?: number;
   edgeCount?: number;
 }
@@ -96,6 +97,8 @@ export interface AnalysisOptions {
   analyzeReferences: boolean;
   analyzeAddOns: boolean;
   analyzeModelParameters: boolean;
+  /** Lookup-only recursive path roots; sources remain limited to the selected root. */
+  searchRoots?: string[];
 }
 
 export interface AnalysisResult {

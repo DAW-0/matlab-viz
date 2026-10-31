@@ -2,7 +2,7 @@
 
 MATLAB Viz is a MATLAB-first dependency explorer for VS Code and VSCodium. It runs MATLAB's documented dependency-analysis APIs locally, converts the results into a portable graph model, and presents that model as an interactive dependency and impact graph.
 
-> **Development status:** `0.3.7` is a working development build. MATLAB Project and folder backends are exercised by automated MATLAB tests and repository acceptance tests. Function call-hierarchy and symbol-reference graphs use the installed MATLAB language service and a conservative MATLAB syntax fallback. See the [acceptance findings](docs/ACCEPTANCE_TESTS.md) for known limitations and pending repairs.
+> **Development status:** `0.3.8` is a working development build. MATLAB Project and folder backends are exercised by automated MATLAB tests and repository acceptance tests. Function call-hierarchy and symbol-reference graphs use the installed MATLAB language service and a conservative MATLAB syntax fallback. See the [acceptance findings](docs/ACCEPTANCE_TESTS.md) for known limitations and pending repairs.
 
 ## Why MATLAB Viz?
 
@@ -61,7 +61,7 @@ To create an installable package:
 
 ```powershell
 npm run package
-codium --install-extension matlab-viz-0.3.7.vsix
+codium --install-extension matlab-viz-0.3.8.vsix
 ```
 
 ## Standalone MATLAB API
@@ -105,6 +105,8 @@ all options and examples.
 | `matlabViz.analysisMode` | `auto` | `auto`, `project`, or `folder`. |
 | `matlabViz.includeExternal` | `false` | Include dependencies outside the selected root. |
 | `matlabViz.includeIsolated` | `true` | Include files without detected in-scope edges. |
+| `matlabViz.folder.useWorkspacePath` | `true` | Use the containing workspace tree to resolve dependencies of a selected folder. |
+| `matlabViz.folder.additionalSearchRoots` | `[]` | Additional folder-backend lookup trees; relative paths use the containing workspace, or selected root outside a workspace. |
 | `matlabViz.watchFiles` | `false` | Refresh after supported files change. |
 | `matlabViz.project.reanalyzeAll` | `false` | Force a complete Project Dependency Analyzer refresh. |
 | `matlabViz.project.analyzeReferences` | `true` | Include referenced projects. |
@@ -115,6 +117,18 @@ all options and examples.
 | `matlabViz.symbols.maximumNodes` | `250` | Safety limit for function and reference graphs. |
 | `matlabViz.symbols.requestTimeoutSeconds` | `20` | Maximum wait for one language-service request. |
 | `matlabViz.symbols.analysisTimeoutSeconds` | `180` | Maximum duration of a complete symbol analysis. |
+
+For selected-folder analysis, lookup roots help MATLAB resolve sibling functions;
+they do not turn those siblings into analyzed source files or increase the
+selected-source `maximumFiles` count. The selected tree takes path precedence.
+Set `matlabViz.includeExternal` to `true` to include resolved dependencies outside
+the selected root, then rerun analysis/Refresh. The toolbar's **External** checkbox
+only hides or shows external nodes already in the result. Lookup roots are logged
+and recorded in folder graph metadata; Project analysis uses its own project path.
+Outside an open workspace no unrelated parent directory is searched implicitly.
+For large workspaces, disable workspace lookup and specify smaller additional
+roots. MATLAB's original path is restored after standalone analysis, including
+errors. See [SearchRoots](matlab/README.md#lookup-roots-and-analysis-scope).
 
 For a function hierarchy, the graph toolbar's **Depth** value controls the
 visible trace and is also used as the analysis depth when **Refresh** is
@@ -188,6 +202,15 @@ An arrow `A → B` means that **A depends on B**. Consequently:
 The graph represents static dependencies, not execution order. Dynamic file names, `eval`, runtime dispatch, and dependency injection can be invisible to static analysis.
 
 For function graphs, `caller → callee` means the source function calls the target function. For reference graphs, `container → symbol` means a function or file contains one or more references to the selected symbol. Reference graphs identify locations; they do not claim to reconstruct runtime values or complete data flow.
+
+Function references supplement empty or partial language-provider results with
+conservative syntax matches, including calls, handles, and simple command form.
+Edge details show grouped lines and evidence. Declarations are not usages;
+recursive calls can produce self-edges. Ambiguous names are reported rather than
+connected indiscriminately. Variables still require language-provider references.
+Syntax matches are inferences to review, not proof of runtime resolution, and an
+empty graph is not proof that a symbol is unused. See the
+[symbol-analysis limitations](docs/SYMBOL_ANALYSIS.md#limitations).
 
 ## Documentation
 

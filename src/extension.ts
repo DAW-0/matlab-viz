@@ -99,7 +99,7 @@ class MatlabVizController implements vscode.Disposable {
         async (progress, token) => {
           progress.report({ message: "Starting MATLAB dependency analysis…" });
           const helper = vscode.Uri.joinPath(this.context.extensionUri, "matlab").fsPath;
-          const result = await runMatlabAnalysis(root, helper, readAnalysisOptions(), token, this.output);
+          const result = await runMatlabAnalysis(root, helper, readAnalysisOptions(root), token, this.output);
           this.lastRoot = root;
           this.lastSymbolAction = undefined;
           this.lastCallSeed = undefined;
@@ -239,13 +239,12 @@ class MatlabVizController implements vscode.Disposable {
       .filter(([amount]) => Number(amount) > 0)
       .map(([amount, label]) => `${amount} ${label}${Number(amount) === 1 ? "" : "s"}`)
       .join(", ");
-    void vscode.window
-      .showWarningMessage(
-        `MATLAB Viz generated the graph successfully with ${descriptions}.`,
-        "View Analysis Notices",
-        "Show Logs"
-      )
-      .then((action) => {
+    const message = `MATLAB Viz generated the graph successfully with ${descriptions}.`;
+    const actions = ["View Analysis Notices", "Show Logs"];
+    const notification = count("error") || count("warning")
+      ? vscode.window.showWarningMessage(message, ...actions)
+      : vscode.window.showInformationMessage(message, ...actions);
+    void notification.then((action) => {
         if (action === "View Analysis Notices") this.panel.showProblems();
         if (action === "Show Logs") this.output.show();
       });

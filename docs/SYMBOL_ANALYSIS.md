@@ -49,15 +49,43 @@ Place the cursor on a function or variable and run **MATLAB Viz: Trace Symbol Re
 
 This graph answers “where is this symbol used?” It does not reconstruct values. Edge details list the source lines containing references.
 
+Function references always supplement the provider's results with conservative
+workspace syntax matches, even when the provider returns a nonempty but partial
+list or only the declaration. Calls, function handles, qualified package names,
+and simple line/semicolon-leading command-form uses are candidates. Comments,
+strings, and function declarations are excluded. Actual recursive uses can
+produce self-edges. Multiple occurrences in one container produce a single edge
+with all retained source lines and `language service` / `MATLAB syntax` evidence.
+
+The syntax resolver favors same-file local functions, visible private functions,
+and same-folder primaries before a unique ordinary workspace function. Qualified
+package functions are resolved separately; unknown object receivers and competing
+global candidates are not guessed. Obvious parameters, outputs, assignments,
+and loop bindings prevent treating array indexing as a function reference. Open
+buffers, including unsaved edits, override disk content. Script-level binding
+checks exclude unrelated local-function parameter lists.
+
+Syntax recovery is informational; ambiguous matches, provider failures/timeouts,
+index read failures, the 5,000-file index cap, and actual node truncation produce
+warnings. Increasing the node limit does not address an incomplete index. A
+zero-usage notice explicitly avoids claiming the symbol is unused. The log
+distinguishes raw provider locations, newly recovered syntax locations, omitted
+containers, and final grouped edge counts. These counts need not be identical.
+
+Variables remain language-provider-only: syntax matching does not infer a variable
+with the same spelling across files or reconstruct reads, writes, or values.
+
 ## Limitations
 
 - Results depend on the installed MATLAB language provider's indexing and resolution quality.
-- Command-form calls without parentheses are not yet treated as outgoing call candidates.
+- Simple command form is supported for function references, not the outgoing call-hierarchy candidate scanner.
 - Dynamic calls through `eval`, `feval` with computed names, callbacks stored in data, or reflection may be absent.
-- A function handle is found syntactically, but the language provider must still resolve it.
+- Unique function handles can be recovered syntactically for references; other call-hierarchy resolution still depends on its provider/fallback strategy.
 - Method dispatch can be ambiguous when the receiver's class is unknown.
 - Reference results do not distinguish reads from writes.
 - The fallback declaration scanner approximates nested scopes when full document-symbol ranges are unavailable.
+- The syntax resolver is not a complete MATLAB parser or path interpreter. Imports, nested-scope capture, dynamic loading, dispatch, and runtime path changes can cause omissions or incorrect inferred matches. Review syntax evidence; neither inferred edges nor empty results prove runtime behavior.
+- Reference Refresh stores the original file/position, not an edit-tracking marker. Start a new trace if edits have moved that symbol.
 - Increasing depth can grow the number of Definition and References requests exponentially; the node and total-time limits intentionally stop pathological traversals.
 
 MATLAB Viz labels these graphs as `language-service` analysis so they are not confused with MATLAB Dependency Analyzer file graphs.

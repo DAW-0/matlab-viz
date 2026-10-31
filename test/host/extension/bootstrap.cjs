@@ -4,7 +4,8 @@ const vscode = require('vscode');
 // A test-only development extension. Normal extension-test mode deliberately
 // uses in-memory storage and therefore cannot test full editor restarts.
 exports.activate = () => {
-  const testModule = process.env.MATLAB_VIZ_RESTORE_STAGE === 'visual' ? 'visual.js' : 'restoration.js';
+  const stage = process.env.MATLAB_VIZ_RESTORE_STAGE;
+  const testModule = stage === 'visual' ? 'visual.js' : stage === 'accuracy' ? 'accuracy.js' : stage === 'repository-accuracy' ? 'repositoryAccuracy.js' : 'restoration.js';
   const runner = require(path.resolve(__dirname, '../../../dist-test/test/host', testModule));
   void runner.run().then(
     () => vscode.commands.executeCommand('workbench.action.quit'),

@@ -64,12 +64,30 @@ See [0.3.6 validation](VALIDATION_0.3.6.md) for the isolated-editor and regressi
 
 See [0.3.7 validation](VALIDATION_0.3.7.md) for the real-renderer, mouse, export, and regression evidence.
 
+## Fourth repair batch: 0.3.8
+
+- Function reference tracing merges conservative syntax matches with partial,
+  empty, or declaration-only providers. Edge details retain occurrence lines and
+  evidence. Ambiguity, incomplete indexing, provider errors, and zero-usage
+  uncertainty are explicit; variables remain provider-scoped.
+- Folder analysis uses optional workspace/explicit lookup roots without
+  expanding the analyzed source tree. WEST `offline-sim` changes from 14 nodes /
+  11 edges to 27 nodes / 26 edges with workspace lookup and external inclusion;
+  external exclusion retains the original 14 / 11 scope.
+- Read-only actual-source checks recover `replay_heating_control.m` line 134
+  under a declaration-only provider and retain the variable occurrence lines.
+  Source bytes are unchanged. All eight existing native regression phases were
+  repeated, plus two accuracy phases.
+
+See [0.3.8 validation](VALIDATION_0.3.8.md) for evidence and exact test scope.
+
 ## Pending repairs and coverage gaps
 
-- Function references may return only the declaration, silently yielding a
-  one-node graph. Reference tracing lacks the call hierarchy's syntax fallback.
-- Selected-folder analysis adds only that folder to MATLAB's path. Known
-  external repository dependencies are unresolved even when inclusion is on.
+- Static reference inference does not fully model nested scopes, imports,
+  dynamic loading/dispatch, or runtime MATLAB path order. Ambiguous matches may
+  be omitted; inferred matches need review rather than implying completeness.
+- Reference Refresh anchors store source positions, not tracked edit locations.
+  Start a fresh trace if edits have moved the original symbol.
 - Dense graphs still have crossing edges. Manually dragged nodes may overlap;
   choosing a layout again restores automatic spacing. Very large graphs should
   use vector SVG rather than an impractically large raster image.
