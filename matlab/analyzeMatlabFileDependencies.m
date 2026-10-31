@@ -206,7 +206,12 @@ else
 end
 
 if includeIsolated
-    missingNodes = setdiff(nodeNames, string(dependencyGraph.Nodes.Name), "stable");
+    if numnodes(dependencyGraph) == 0
+        % An unnamed empty digraph has no Nodes.Name table variable yet.
+        missingNodes = nodeNames;
+    else
+        missingNodes = setdiff(nodeNames, string(dependencyGraph.Nodes.Name), "stable");
+    end
     if ~isempty(missingNodes)
         dependencyGraph = addnode(dependencyGraph, cellstr(missingNodes));
     end

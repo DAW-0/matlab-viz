@@ -48,12 +48,14 @@ metadata = struct( ...
     "nodeCount", numel(nodes), ...
     "edgeCount", numel(edges));
 
-document = struct( ...
-    "metadata", metadata, ...
-    "nodes", nodes, ...
-    "edges", edges, ...
-    "products", products, ...
-    "problems", problems);
+% Cell arrays preserve the JSON collection contract at every cardinality.
+% A scalar MATLAB struct otherwise becomes an object instead of [object].
+document = struct();
+document.metadata = metadata;
+document.nodes = num2cell(nodes);
+document.edges = num2cell(edges);
+document.products = num2cell(products);
+document.problems = num2cell(problems);
 
 outputFolder = fileparts(outputPath);
 if strlength(outputFolder) > 0 && ~isfolder(outputFolder)
@@ -64,7 +66,7 @@ if fileId < 0
     error("MatlabViz:OutputOpenFailed", "Could not open output file: %s", outputPath);
 end
 cleanup = onCleanup(@() fclose(fileId));
-fwrite(fileId, jsonencode(document), "char");
+fprintf(fileId, "%s", jsonencode(document));
 fprintf("MATLAB Viz: exported %d nodes and %d edges to %s\n", numel(nodes), numel(edges), outputPath);
 end
 

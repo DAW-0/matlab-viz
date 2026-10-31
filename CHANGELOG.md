@@ -4,6 +4,24 @@ All notable changes to MATLAB Viz will be documented here.
 
 ## [Unreleased]
 
+## [0.3.5]
+
+### Fixed
+
+- MATLAB JSON collections remain arrays when empty or when they contain a single node, edge, product, or notice; missing-file Project results are no longer rejected.
+- Folder analyses with no dependency edges correctly retain isolated files instead of accessing an absent empty-graph node-name column.
+- Legacy scalar collections are normalized when reading graph documents, with field-specific validation errors for malformed data.
+- File, function, and reference analyses release their running state without waiting for error-notification dismissal.
+- Failed folder analyses preserve the previous successful graph's Refresh target.
+- MATLAB's original exception identifier and message are included in failure notifications instead of only its exit code.
+- JSON and process-output handling preserve Unicode paths and text.
+
+### Added
+
+- Controller regression tests that leave error notifications open during retries.
+- Real MATLAB JSON, missing-file Project, artifact-generation, logging, cancellation, and recovery tests.
+- Analysis options and explicit completion counts in the MATLAB Viz output log.
+
 ## [0.3.4]
 
 ### Fixed

@@ -1,5 +1,9 @@
 .github/**
 .vscode/**
+.tools/**
+.vscode-test/**
+coverage/**
+out/**
 .gitignore
 docs/**
 test/**

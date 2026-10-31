@@ -69,15 +69,11 @@ class MatlabVizController implements vscode.Disposable {
       void vscode.window.showInformationMessage("A MATLAB Viz analysis is already running.");
       return;
     }
-    const root = await this.resolveRoot(resource);
-    if (!root) return;
-    this.lastRoot = root;
-    this.lastSymbolAction = undefined;
-    this.lastCallSeed = undefined;
-    this.lastReferenceAnchor = undefined;
     this.running = true;
-    this.status.text = "$(loading~spin) MATLAB Viz analyzing";
     try {
+      const root = await this.resolveRoot(resource);
+      if (!root) return;
+      this.status.text = "$(loading~spin) MATLAB Viz analyzing";
       await vscode.window.withProgress(
         {
           location: vscode.ProgressLocation.Notification,
@@ -88,6 +84,10 @@ class MatlabVizController implements vscode.Disposable {
           progress.report({ message: "Starting MATLAB dependency analysis…" });
           const helper = vscode.Uri.joinPath(this.context.extensionUri, "matlab").fsPath;
           const result = await runMatlabAnalysis(root, helper, readAnalysisOptions(), token, this.output);
+          this.lastRoot = root;
+          this.lastSymbolAction = undefined;
+          this.lastCallSeed = undefined;
+          this.lastReferenceAnchor = undefined;
           this.graph = result.graph;
           this.panel.update(result.graph);
           this.sidebar.setGraph(result.graph);
@@ -97,15 +97,7 @@ class MatlabVizController implements vscode.Disposable {
         }
       );
     } catch (error) {
-      if (error instanceof vscode.CancellationError) {
-        this.output.appendLine("[MATLAB Viz] Analysis cancelled.");
-      } else {
-        const message = error instanceof Error ? error.message : String(error);
-        this.output.error(message);
-        const action = await vscode.window.showErrorMessage(`MATLAB Viz analysis failed: ${message}`, "Show Logs");
-        if (action === "Show Logs") this.output.show();
-      }
-      this.status.text = "$(type-hierarchy) MATLAB Viz";
+      this.handleAnalysisError(error, "analysis");
     } finally {
       this.running = false;
     }
@@ -163,7 +155,7 @@ class MatlabVizController implements vscode.Disposable {
         }
       );
     } catch (error) {
-      await this.handleAnalysisError(error, "function analysis");
+      this.handleAnalysisError(error, "function analysis");
     } finally {
       this.running = false;
     }
@@ -188,7 +180,7 @@ class MatlabVizController implements vscode.Disposable {
         }
       );
     } catch (error) {
-      await this.handleAnalysisError(error, "symbol reference analysis");
+      this.handleAnalysisError(error, "symbol reference analysis");
     } finally {
       this.running = false;
     }
@@ -230,14 +222,18 @@ class MatlabVizController implements vscode.Disposable {
       });
   }
 
-  private async handleAnalysisError(error: unknown, operation: string): Promise<void> {
+  private handleAnalysisError(error: unknown, operation: string): void {
     if (error instanceof vscode.CancellationError) {
       this.output.appendLine(`[MATLAB Viz] ${operation} cancelled.`);
     } else {
       const message = error instanceof Error ? error.message : String(error);
       this.output.error(`${operation}: ${message}`);
-      const action = await vscode.window.showErrorMessage(`MATLAB Viz ${operation} failed: ${message}`, "Show Logs");
-      if (action === "Show Logs") this.output.show();
+      // A notification's promise settles only on action/dismissal. Do not hold
+      // the analysis lock (or let a late dismissal reset a newer run's state).
+      void vscode.window.showErrorMessage(`MATLAB Viz ${operation} failed: ${message}`, "Show Logs")
+        .then((action) => {
+          if (action === "Show Logs") this.output.show();
+        });
     }
     this.status.text = "$(type-hierarchy) MATLAB Viz";
   }

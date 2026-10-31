@@ -5,6 +5,6 @@
     "outDir": "dist-test",
     "noEmit": false
   },
-  "include": ["src/core/**/*.ts", "src/model.ts", "test/**/*.ts"],
+  "include": ["src/**/*.ts", "test/**/*.ts"],
   "exclude": ["node_modules", "dist"]
 }

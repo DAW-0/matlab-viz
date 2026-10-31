@@ -12,6 +12,7 @@ Install and validate:
 ```powershell
 npm install
 npm run check
+npm run lint
 npm run test:compile
 npm test
 npm run build
@@ -28,7 +29,7 @@ npm run package
 The package script type-checks and bundles the extension before invoking `vsce`. Install the resulting VSIX with:
 
 ```powershell
-codium --install-extension .\matlab-viz-0.3.2.vsix
+codium --install-extension .\matlab-viz-0.3.5.vsix
 ```
 
 ## MATLAB-only validation
@@ -44,7 +45,7 @@ Run its MATLAB function tests with:
 
 ```matlab
 addpath("matlab")
-results = runtests("test/matlab/testAnalyzeMatlabFileDependencies.m");
+results = runtests("test/matlab");
 assertSuccess(results)
 ```
 
@@ -62,6 +63,78 @@ Run MATLAB Code Analyzer before committing changes:
 checkcode("matlab/analyzeMatlabFileDependencies.m","-id")
 checkcode("matlab/MatlabVizAnalyze.m","-id")
 ```
+
+## Controller, process, and export regressions
+
+`npm test` runs Node tests for graph validation, exports, MATLAB diagnostics,
+and the controller. Controller tests execute the compiled controller against
+VS Code adapters and deliberately leave notification promises unresolved.
+They verify retries, preservation of the previous graph/Refresh target,
+cancellation, and late notification actions. They do not simulate the actual
+VSCodium notification UI.
+
+The real MATLAB runner test is opt-in so CI can run without a MATLAB license:
+
+```powershell
+$env:MATLAB_VIZ_TEST_EXECUTABLE = 'C:\Program Files\MATLAB\R2026b\bin\matlab.exe'
+$env:MATLAB_VIZ_TEST_ARTIFACTS = 'E:\_Git\matlab-viz\.tools\validation\0.3.5'
+npm run test:compile
+npm test
+Remove-Item Env:\MATLAB_VIZ_TEST_EXECUTABLE
+Remove-Item Env:\MATLAB_VIZ_TEST_ARTIFACTS
+```
+
+It runs the production process runner with MATLAB, verifies single-item JSON
+and Unicode paths, generates JSON/DOT/CSV exports, and checks saved success,
+failure, and cancellation logs. It also verifies actual MATLAB exception
+messages and successful retry after cancellation. Only the VS Code output and
+cancellation interfaces are adapted; MATLAB and the filesystem are real.
+Artifact logs are saved by the harness from the production runner's output.
+VSCodium manages the installed extension's own log-output-channel files.
+
+## Actual VSCodium host tests
+
+The `test/host/index.ts` entry point runs against the installed editor's real
+command, notification, webview, configuration, and cache APIs. It verifies file
+analysis retries while error notifications remain untouched, retries after
+function/reference input errors, the unchanged cache after a failure, and a
+missing-file Project result with one edge and one warning. The real MATLAB Viz
+output channel also produces a log under the isolated editor profile.
+
+Build with `npm run test:compile` and `npm run build`. Set these environment
+variables to absolute paths:
+
+- `MATLAB_VIZ_TEST_EXECUTABLE`: the MATLAB executable.
+- `MATLAB_VIZ_TEST_ARTIFACTS`: destination for the host log, result JSON, and exports.
+- `MATLAB_VIZ_HOST_PROFILE`: a fresh editor user-data directory.
+- `MATLAB_VIZ_HOST_FIXTURES`: a fresh fixture directory.
+
+Prepare the fixtures in a separate MATLAB process using
+`createMatlabVizHostFixtures` from `test/matlab`. The helper intentionally refuses
+to overwrite an existing directory. Then launch the installed editor with:
+
+```powershell
+codium --new-window --wait --disable-extensions --disable-workspace-trust `
+  --user-data-dir "$env:MATLAB_VIZ_HOST_PROFILE" `
+  --extensions-dir "$env:MATLAB_VIZ_HOST_PROFILE\extensions" `
+  --extensionDevelopmentPath 'E:\_Git\matlab-viz' `
+  --extensionTestsPath 'E:\_Git\matlab-viz\dist-test\test\host' `
+  "$env:MATLAB_VIZ_HOST_FIXTURES\project"
+```
+
+Use the separate profile to avoid changing the user's installed settings or
+workspace cache. When launching the Electron executable directly instead of
+the CLI, remove inherited `ELECTRON_RUN_AS_NODE` from that test process first;
+the Codex terminal can set it. Capture its stdout/stderr and wait for its exit
+code. No code in this harness closes or edits the user's normal windows.
+
+MATLAB function tests cover raw JSON array syntax at zero/one/many cardinality,
+missing Project files, and all nine standalone export artifacts, including
+vector SVG, raster PNG, and MAT report reloading.
+
+See [acceptance findings](ACCEPTANCE_TESTS.md) for the manual test history and
+remaining work. A passing data-export regression does not imply that the
+known webview SVG/PNG framing and layout defects are repaired.
 
 ## Release checklist
 

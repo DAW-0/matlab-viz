@@ -84,12 +84,32 @@ export function validateGraph(value: unknown): DependencyGraph {
     throw new Error("MATLAB returned an invalid graph document.");
   }
   const graph = value as Partial<DependencyGraph>;
-  if (!graph.metadata || !Array.isArray(graph.nodes) || !Array.isArray(graph.edges)) {
-    throw new Error("MATLAB graph document is missing metadata, nodes, or edges.");
+  if (!graph.metadata || typeof graph.metadata !== "object" || Array.isArray(graph.metadata)) {
+    throw new Error("MATLAB graph document is missing valid metadata.");
   }
-  graph.products ??= [];
-  graph.problems ??= [];
+  // Accept legacy scalar-struct collections as well as the current array format.
+  graph.nodes = graphCollection<GraphNode>(graph.nodes, "nodes", ["id", "label", "path"]);
+  graph.edges = graphCollection<GraphEdge>(graph.edges, "edges", ["id", "source", "target", "kind"]);
+  graph.products = graphCollection<ProductDependency>(graph.products ?? [], "products", ["name"]);
+  graph.problems = graphCollection<AnalysisProblem>(graph.problems ?? [], "problems", ["message", "severity"]);
+  if (graph.problems.some((problem) => !["error", "warning", "information"].includes(problem.severity))) {
+    throw new Error("MATLAB graph document contains an invalid problem severity.");
+  }
   graph.metadata.nodeCount = graph.nodes.length;
   graph.metadata.edgeCount = graph.edges.length;
   return graph as DependencyGraph;
+}
+
+function graphCollection<T>(value: unknown, field: string, stringFields: string[]): T[] {
+  if (value === undefined || value === null) {
+    throw new Error(`MATLAB graph document is missing the ${field} collection.`);
+  }
+  const items: unknown[] = Array.isArray(value) ? value : [value];
+  for (const item of items) {
+    if (!item || typeof item !== "object" || Array.isArray(item)
+      || stringFields.some((key) => typeof (item as Record<string, unknown>)[key] !== "string")) {
+      throw new Error(`MATLAB graph document contains invalid ${field}; expected graph records in an array.`);
+    }
+  }
+  return items as T[];
 }
