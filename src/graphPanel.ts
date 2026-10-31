@@ -14,6 +14,12 @@ interface WebviewMessage {
   line?: number;
   character?: number;
   depth?: number;
+  scope?: string;
+  nodes?: number;
+  edges?: number;
+  width?: number;
+  height?: number;
+  message?: string;
 }
 
 function nonce(): string {
@@ -30,11 +36,17 @@ export class GraphPanel implements vscode.Disposable {
   private needsGraph = true;
   private restoredState: unknown;
   private unavailableMessage: string | undefined;
+  private pendingExport: { type: "requestExport"; format: string; scope: string; scale: number } | undefined;
+  private lastExportDirectory: vscode.Uri | undefined;
 
   public constructor(
     private readonly extensionUri: vscode.Uri,
-    private readonly refresh: (depth?: number) => Promise<void>
-  ) {}
+    private readonly refresh: (depth?: number) => Promise<void>,
+    private readonly services: { state?: vscode.Memento; output?: vscode.LogOutputChannel } = {}
+  ) {
+    const saved = services.state?.get<string>("exportDirectory");
+    if (saved) { try { this.lastExportDirectory = vscode.Uri.parse(saved); } catch { /* An optional export preference must not prevent activation. */ } }
+  }
 
   public dispose(): void {
     this.panel?.dispose();
@@ -52,12 +64,22 @@ export class GraphPanel implements vscode.Disposable {
           return type === GRAPH_VIEW_TYPE || type === `mainThreadWebview-${GRAPH_VIEW_TYPE}`;
         });
       if (pending) {
-        for (let attempt = 0; vscode.window.tabGroups.activeTabGroup !== pending.group && attempt < groups.length; attempt++) {
+        this.services.output?.appendLine(`[MATLAB Viz] Revealing saved graph tab: column=${pending.group.viewColumn}, index=${pending.index}, active=${vscode.window.tabGroups.activeTabGroup.viewColumn}.`);
+        for (let attempt = 0; vscode.window.tabGroups.activeTabGroup.viewColumn !== pending.group.viewColumn && attempt < groups.length; attempt++) {
           await vscode.commands.executeCommand("workbench.action.focusNextGroup");
+          const until = Date.now() + 500;
+          while (vscode.window.tabGroups.activeTabGroup.viewColumn !== pending.group.viewColumn && Date.now() < until) {
+            await new Promise((resolve) => setTimeout(resolve, 10));
+          }
         }
-        if (vscode.window.tabGroups.activeTabGroup === pending.group) {
+        if (vscode.window.tabGroups.activeTabGroup.viewColumn === pending.group.viewColumn) {
+          // A restored auxiliary group can be logically active while the
+          // main window still owns DOM focus. Index-based commands otherwise
+          // reopen the main window's editor instead of this graph tab.
+          await vscode.commands.executeCommand("workbench.action.focusActiveEditorGroup");
           await vscode.commands.executeCommand("workbench.action.openEditorAtIndex", pending.index);
         }
+        this.services.output?.appendLine(`[MATLAB Viz] Saved graph activation requested; active column=${vscode.window.tabGroups.activeTabGroup.viewColumn}.`);
         this.postGraph();
         return;
       }
@@ -127,6 +149,11 @@ export class GraphPanel implements vscode.Disposable {
   }
 
   public async exportGraph(): Promise<void> {
+    try { await this.chooseExport(); }
+    catch (error) { this.reportExportError(error instanceof Error ? error.message : String(error)); }
+  }
+
+  private async chooseExport(): Promise<void> {
     if (!this.graph) {
       void vscode.window.showInformationMessage("Run a MATLAB Viz analysis before exporting a graph.");
       return;
@@ -136,8 +163,8 @@ export class GraphPanel implements vscode.Disposable {
         { label: "JSON", description: "Complete graph model", extension: "json" },
         { label: "Graphviz DOT", description: "Portable directed graph", extension: "dot" },
         { label: "CSV", description: "Dependency edge table", extension: "csv" },
-        { label: "SVG", description: "Current visual view", extension: "svg", visual: true },
-        { label: "PNG", description: "Current visual view", extension: "png", visual: true }
+        { label: "SVG", description: "Zoomable vector graph with full labels", extension: "svg", visual: true },
+        { label: "PNG", description: "Raster graph with selectable resolution", extension: "png", visual: true }
       ],
       { title: "Export MATLAB Viz graph" }
     );
@@ -145,8 +172,24 @@ export class GraphPanel implements vscode.Disposable {
       return;
     }
     if (format.visual) {
+      const scope = await vscode.window.showQuickPick([
+        { label: "Filtered graph", description: "All nodes allowed by the current filters, including offscreen nodes", value: "graph" },
+        { label: "Current viewport", description: "Crop to the current pan and zoom", value: "viewport" }
+      ], { title: "Visual export framing", placeHolder: "Search highlights do not remove nodes; dependency/impact and visibility filters do." });
+      if (!scope) return;
+      let scale = 1;
+      if (format.extension === "png") {
+        const resolution = await vscode.window.showQuickPick([
+          { label: "2×", description: "24-pixel labels at native graph size (recommended)", value: 2 },
+          { label: "1×", description: "12-pixel labels; smaller output", value: 1 },
+          { label: "4×", description: "48-pixel labels; larger output", value: 4 }
+        ], { title: "PNG resolution", placeHolder: "For very large graphs, use SVG: PNG is limited to 32 megapixels / 16,384 pixels per side." });
+        if (!resolution) return;
+        scale = resolution.value;
+      }
       await this.show();
-      await this.panel?.webview.postMessage({ type: "requestExport", format: format.extension });
+      this.pendingExport = { type: "requestExport", format: format.extension, scope: scope.value, scale };
+      this.postGraph();
       return;
     }
     const content =
@@ -182,6 +225,12 @@ export class GraphPanel implements vscode.Disposable {
         }
       });
     }
+    if (this.pendingExport) {
+      const request = this.pendingExport;
+      this.pendingExport = undefined;
+      this.services.output?.appendLine(`[MATLAB Viz] Export requested: ${request.format.toUpperCase()}, scope=${request.scope}, scale=${request.scale}.`);
+      void this.panel.webview.postMessage(request);
+    }
   }
 
   private async receive(message: WebviewMessage): Promise<void> {
@@ -209,32 +258,47 @@ export class GraphPanel implements vscode.Disposable {
         await this.exportGraph();
         break;
       case "saveVisual":
-        if (message.data && message.format) {
-          await this.save(message.data, message.format, message.encoding ?? "utf8");
+        if (message.data && (message.format === "svg" || message.format === "png")) {
+          const dimensions = message.width && message.height ? `, pixels=${message.width}x${message.height}` : "";
+          this.services.output?.appendLine(`[MATLAB Viz] Visual export rendered: ${message.format.toUpperCase()}, scope=${message.scope}, nodes=${message.nodes}, edges=${message.edges}${dimensions}.`);
+          await this.save(message.data, message.format, message.format === "png" ? "base64" : "utf8");
         }
+        break;
+      case "exportError":
+        this.reportExportError(message.message ?? "Visual export could not be generated.");
         break;
     }
   }
 
   private async save(content: string, extension: string, encoding: "utf8" | "base64"): Promise<void> {
-    const root = this.graph?.metadata.root ?? "matlab-dependencies";
-    const defaultName = `${path.basename(root)}-dependencies.${extension}`;
-    const uri = await vscode.window.showSaveDialog({
-      defaultUri: vscode.Uri.file(path.join(root, defaultName)),
-      filters: { [extension.toUpperCase()]: [extension] }
-    });
-    if (!uri) {
-      return;
-    }
-    const buffer = Buffer.from(content.replace(/^data:image\/png;base64,/, ""), encoding);
-    await vscode.workspace.fs.writeFile(uri, buffer);
-    void vscode.window.showInformationMessage(`MATLAB Viz exported ${path.basename(uri.fsPath)}.`);
+    try {
+      const root = this.graph?.metadata.root ?? "matlab-dependencies";
+      const defaultName = `${path.basename(root)}-dependencies.${extension}`;
+      const uri = await vscode.window.showSaveDialog({
+        defaultUri: this.lastExportDirectory ? vscode.Uri.joinPath(this.lastExportDirectory, defaultName) : vscode.Uri.file(path.join(root, defaultName)),
+        filters: { [extension.toUpperCase()]: [extension] }
+      });
+      if (!uri) return;
+      const buffer = Buffer.from(content.replace(/^data:image\/png;base64,/, ""), encoding);
+      await vscode.workspace.fs.writeFile(uri, buffer);
+      this.lastExportDirectory = vscode.Uri.joinPath(uri, "..");
+      try { await this.services.state?.update("exportDirectory", this.lastExportDirectory.toString()); }
+      catch (error) { this.services.output?.warn(`Export saved, but destination preference could not be stored: ${String(error)}`); }
+      this.services.output?.appendLine(`[MATLAB Viz] Export saved: ${uri.fsPath} (${extension.toUpperCase()}, ${buffer.length} bytes).`);
+      void vscode.window.showInformationMessage(`MATLAB Viz exported ${path.basename(uri.fsPath)}.`);
+    } catch (error) { this.reportExportError(error instanceof Error ? error.message : String(error)); }
+  }
+
+  private reportExportError(message: string): void {
+    this.services.output?.error(`Export failed: ${message}`);
+    void vscode.window.showErrorMessage(`MATLAB Viz export failed: ${message}`);
   }
 
   private html(webview: vscode.Webview): string {
     const token = nonce();
     const script = webview.asWebviewUri(vscode.Uri.joinPath(this.extensionUri, "media", "graph.js"));
     const style = webview.asWebviewUri(vscode.Uri.joinPath(this.extensionUri, "media", "graph.css"));
+    const geometry = webview.asWebviewUri(vscode.Uri.joinPath(this.extensionUri, "media", "graphGeometry.js"));
     return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -269,6 +333,7 @@ export class GraphPanel implements vscode.Disposable {
     <aside id="details"><h2>Selection</h2><p>Select a node or edge.</p></aside>
   </main>
   <div id="tooltip" hidden></div>
+  <script nonce="${token}" src="${geometry}"></script>
   <script nonce="${token}" src="${script}"></script>
 </body>
 </html>`;

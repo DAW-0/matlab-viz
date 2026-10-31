@@ -14,6 +14,14 @@
   const problemsButton = document.getElementById("problems");
   const tooltip = document.getElementById("tooltip");
   const NS = "http://www.w3.org/2000/svg";
+  const geometry = globalThis.MatlabVizGeometry;
+  const sizes = new Map();
+  const nodeElements = new Map();
+  const edgeElements = new Map();
+  const labelCanvas = document.createElement("canvas");
+  const labelContext = labelCanvas.getContext?.("2d");
+  const fontFamily = typeof getComputedStyle === "function" ? getComputedStyle(document.body).fontFamily : "Arial, sans-serif";
+  if (labelContext) labelContext.font = `12px ${fontFamily}`;
 
   let graph;
   let selectedId;
@@ -26,12 +34,15 @@
   let detailSelection;
   let viewportCustomized = false;
   let stateFrame;
+  let suppressClick = false;
+  let dragFrame;
+  let pointerNodeId;
   const initialState = vscode.getState();
 
   function saveState() {
     if (!graph) return;
     vscode.setState({
-      version: 1, graphKey,
+      version: 1, geometryVersion: 1, graphKey,
       controls: { search: search.value, layout: layout.value, direction: direction.value,
         depth: Number(depth.value), external: external.checked, isolated: isolated.checked },
       selectedId, detailSelection, positions: [...positions], transform: { ...transform }, viewportCustomized
@@ -63,7 +74,7 @@
     const ids = new Set(graph.nodes.map((node) => node.id));
     selectedId = ids.has(value.selectedId) ? value.selectedId : undefined;
     if (!selectedId) direction.value = "all";
-    if (Array.isArray(value.positions)) {
+    if (value.geometryVersion === 1 && Array.isArray(value.positions)) {
       for (const entry of value.positions) {
         if (Array.isArray(entry) && ids.has(entry[0]) && entry[1]
           && Number.isFinite(entry[1].x) && Number.isFinite(entry[1].y)) {
@@ -72,7 +83,7 @@
       }
     }
     const view = value.transform;
-    if (view && Number.isFinite(view.x) && Number.isFinite(view.y) && Number.isFinite(view.k) && view.k > 0 && view.k <= 1e6) {
+    if (value.geometryVersion === 1 && view && Number.isFinite(view.x) && Number.isFinite(view.y) && Number.isFinite(view.k) && view.k > 0 && view.k <= 1e6) {
       transform = { x: view.x, y: view.y, k: view.k };
       viewportCustomized = value.viewportCustomized === true;
     }
@@ -96,8 +107,9 @@
   }
 
   function nodeSize(node) {
-    const label = node.relativePath || node.label;
-    return { width: Math.min(330, Math.max(120, label.length * 7.1 + 24)), height: 38 };
+    if (!sizes.has(node.id)) sizes.set(node.id, geometry.labelBox(node.relativePath || node.label,
+      labelContext ? (value) => labelContext.measureText(value).width : undefined));
+    return sizes.get(node.id);
   }
 
   function currentGraph() {
@@ -212,59 +224,16 @@
   function calculateLayout(kind) {
     const data = currentGraph();
     if (!data.nodes.length) return;
-    if (kind === "circle") circleLayout(data.nodes);
-    else if (kind === "grid") gridLayout(data.nodes);
-    else if (kind === "hierarchical") hierarchicalLayout(data);
-    else forceLayout(data);
-  }
-
-  function gridLayout(nodes) {
-    const columns = Math.ceil(Math.sqrt(nodes.length));
-    nodes.forEach((node, index) => positions.set(node.id, { x: (index % columns) * 240, y: Math.floor(index / columns) * 100 }));
-  }
-
-  function circleLayout(nodes) {
-    const radius = Math.max(180, nodes.length * 22);
-    nodes.forEach((node, index) => {
-      const angle = (index / nodes.length) * Math.PI * 2;
-      positions.set(node.id, { x: Math.cos(angle) * radius, y: Math.sin(angle) * radius });
-    });
-  }
-
-  function hierarchicalLayout(data) {
-    const indegree = new Map(data.nodes.map((node) => [node.id, 0]));
-    const outgoing = new Map(data.nodes.map((node) => [node.id, []]));
-    for (const edge of data.edges) {
-      indegree.set(edge.target, (indegree.get(edge.target) || 0) + 1);
-      outgoing.get(edge.source)?.push(edge.target);
-    }
-    const levels = new Map();
-    const queue = [...indegree].filter(([, value]) => value === 0).map(([id]) => id);
-    if (!queue.length && data.nodes[0]) queue.push(data.nodes[0].id);
-    queue.forEach((id) => levels.set(id, 0));
-    while (queue.length) {
-      const id = queue.shift();
-      const nextLevel = (levels.get(id) || 0) + 1;
-      for (const next of outgoing.get(id) || []) {
-        if (!levels.has(next) || levels.get(next) < nextLevel) levels.set(next, nextLevel);
-        indegree.set(next, (indegree.get(next) || 1) - 1);
-        if (indegree.get(next) === 0) queue.push(next);
-      }
-    }
-    let fallback = Math.max(0, ...levels.values()) + 1;
-    for (const node of data.nodes) if (!levels.has(node.id)) levels.set(node.id, fallback++);
-    const rows = new Map();
-    for (const node of data.nodes) {
-      const level = levels.get(node.id);
-      if (!rows.has(level)) rows.set(level, []);
-      rows.get(level).push(node);
-    }
-    for (const [level, nodes] of rows) nodes.forEach((node, index) => positions.set(node.id, { x: level * 300, y: index * 90 }));
+    data.nodes.forEach(nodeSize);
+    if (kind === "circle") geometry.circle(data.nodes, positions, sizes);
+    else if (kind === "grid") geometry.grid(data.nodes, positions, sizes);
+    else if (kind === "hierarchical") geometry.hierarchical(data, positions, sizes);
+    else { forceLayout(data); geometry.separate(data.nodes, positions, sizes); }
   }
 
   function forceLayout(data) {
     if (data.nodes.length > 350) {
-      hierarchicalLayout(data);
+      geometry.hierarchical(data, positions, sizes);
       return;
     }
     const count = data.nodes.length;
@@ -313,7 +282,9 @@
   function render(reposition = false) {
     if (!graph) return;
     while (svg.firstChild) svg.removeChild(svg.firstChild);
+    nodeElements.clear(); edgeElements.clear();
     const data = currentGraph();
+    data.nodes.forEach(nodeSize);
     if (reposition || data.nodes.some((node) => !positions.has(node.id))) calculateLayout(layout.value);
     const defs = element("defs");
     const marker = element("marker", { id: "arrow", viewBox: "0 0 10 10", refX: 9, refY: 5, markerWidth: 7, markerHeight: 7, orient: "auto-start-reverse" });
@@ -336,18 +307,11 @@
   }
 
   function drawEdge(edge) {
-    const source = positions.get(edge.source), target = positions.get(edge.target);
-    if (!source || !target) return;
-    const sourceNode = graph.nodes.find((node) => node.id === edge.source);
-    const targetNode = graph.nodes.find((node) => node.id === edge.target);
-    const a = nodeSize(sourceNode), b = nodeSize(targetNode);
-    const dx = target.x - source.x, dy = target.y - source.y;
-    const distance = Math.max(1, Math.sqrt(dx * dx + dy * dy));
-    const x1 = source.x + (dx / distance) * (a.width / 2);
-    const y1 = source.y + (dy / distance) * (a.height / 2);
-    const x2 = target.x - (dx / distance) * (b.width / 2 + 7);
-    const y2 = target.y - (dy / distance) * (b.height / 2 + 7);
-    const line = element("line", { x1, y1, x2, y2, class: `edge${selectedId && (edge.source === selectedId || edge.target === selectedId) ? " highlight" : ""}` });
+    const value = geometry.edgeGeometry(edge, positions, sizes);
+    if (!value) return;
+    const line = element(value.d ? "path" : "line", { class: `edge${selectedId && (edge.source === selectedId || edge.target === selectedId) ? " highlight" : ""}`, "data-edge-id": edge.id });
+    for (const [name, item] of Object.entries(value)) if (name !== "bounds") line.setAttribute(name, item);
+    edgeElements.set(edge.id, line);
     line.addEventListener("click", (event) => { event.stopPropagation(); showEdge(edge); });
     line.addEventListener("mouseenter", (event) => showTooltip(event, edge.kind));
     line.addEventListener("mouseleave", hideTooltip);
@@ -357,21 +321,24 @@
   function drawNode(node, query) {
     const point = positions.get(node.id), size = nodeSize(node);
     const matches = !query || `${node.label} ${node.relativePath} ${node.path}`.toLowerCase().includes(query);
-    const group = element("g", { transform: `translate(${point.x},${point.y})`, class: `node${node.external ? " external" : ""}${node.missing ? " missing" : ""}${node.id === selectedId ? " selected" : ""}${matches ? "" : " dim"}` });
+    const group = element("g", { transform: `translate(${point.x},${point.y})`, "data-node-id": node.id, class: `node${node.external ? " external" : ""}${node.missing ? " missing" : ""}${node.id === selectedId ? " selected" : ""}${matches ? "" : " dim"}` });
+    nodeElements.set(node.id, group);
     group.appendChild(element("rect", { x: -size.width / 2, y: -size.height / 2, width: size.width, height: size.height }));
-    const text = element("text", { x: 0, y: 4, "text-anchor": "middle" });
-    const label = node.relativePath || node.label;
-    text.textContent = label.length > 44 ? `…${label.slice(-43)}` : label;
-    group.appendChild(text);
-    group.addEventListener("click", (event) => { event.stopPropagation(); selectedId = node.id; showNode(node); render(); });
-    group.addEventListener("dblclick", (event) => { event.stopPropagation(); vscode.postMessage({ type: "openFile", path: node.path, line: node.line, character: node.character }); });
-    group.addEventListener("pointerdown", (event) => { event.stopPropagation(); dragging = { id: node.id, start: screenToWorld(event.clientX, event.clientY) }; group.setPointerCapture(event.pointerId); });
-    group.addEventListener("pointermove", (event) => {
-      if (!dragging || dragging.id !== node.id) return;
-      const current = screenToWorld(event.clientX, event.clientY), value = positions.get(node.id);
-      value.x += current.x - dragging.start.x; value.y += current.y - dragging.start.y; dragging.start = current; render();
+    const text = element("text", { "text-anchor": "middle", "xml:space": "preserve" });
+    size.lines.forEach((line, index) => {
+      const span = element("tspan", { x: 0, y: (index - (size.lines.length - 1) / 2) * 16 + 4 });
+      span.textContent = line; text.appendChild(span);
     });
-    group.addEventListener("pointerup", () => { dragging = undefined; });
+    group.appendChild(text);
+    group.addEventListener("click", (event) => { event.stopPropagation(); if (suppressClick) { suppressClick = false; return; } selectedId = node.id; showNode(node); render(direction.value !== "all"); });
+    group.addEventListener("dblclick", (event) => { event.stopPropagation(); vscode.postMessage({ type: "openFile", path: node.path, line: node.line, character: node.character }); });
+    group.addEventListener("pointerdown", (event) => {
+      if (event.button !== 0) return;
+      event.stopPropagation(); suppressClick = false;
+      pointerNodeId = node.id;
+      dragging = { id: node.id, start: screenToWorld(event.clientX, event.clientY), x: event.clientX, y: event.clientY };
+      svg.setPointerCapture(event.pointerId);
+    });
     group.addEventListener("mouseenter", (event) => showTooltip(event, `${node.kind}\n${node.path}`));
     group.addEventListener("mouseleave", hideTooltip);
     world.appendChild(group);
@@ -422,45 +389,108 @@
     const data = currentGraph();
     if (!data.nodes.length) return;
     viewportCustomized = false;
-    const xs = data.nodes.map((node) => positions.get(node.id)?.x || 0), ys = data.nodes.map((node) => positions.get(node.id)?.y || 0);
-    const minX = Math.min(...xs) - 190, maxX = Math.max(...xs) + 190, minY = Math.min(...ys) - 70, maxY = Math.max(...ys) + 70;
     const rect = svg.getBoundingClientRect();
-    transform.k = Math.max(.08, Math.min(2, Math.min(rect.width / (maxX - minX), rect.height / (maxY - minY))));
-    transform.x = (rect.width - (minX + maxX) * transform.k) / 2;
-    transform.y = (rect.height - (minY + maxY) * transform.k) / 2;
+    transform = geometry.fit(geometry.bounds(data, positions, sizes), rect.width, rect.height);
     updateTransform();
   }
 
-  function exportVisual(format) {
-    const clone = svg.cloneNode(true);
-    clone.setAttribute("xmlns", NS);
-    clone.setAttribute("width", String(svg.clientWidth)); clone.setAttribute("height", String(svg.clientHeight));
-    const style = document.createElementNS(NS, "style");
-    style.textContent = `.edge{stroke:#7f8c8d;stroke-width:1.2;fill:none}.node rect{fill:#fff;stroke:#1976d2;stroke-width:1.5}.node.external rect{stroke:#d6a500;stroke-dasharray:5 3}.node.missing rect{stroke:#d32f2f}.node text{fill:#222;font:12px Arial}`;
-    clone.insertBefore(style, clone.firstChild);
-    const source = new XMLSerializer().serializeToString(clone);
-    if (format === "svg") {
-      vscode.postMessage({ type: "saveVisual", format: "svg", data: source, encoding: "utf8" });
-      return;
+  async function exportVisual(format, scope = "graph", scale = 2) {
+    try {
+      const data = currentGraph();
+      const theme = getComputedStyle(document.documentElement);
+      const css = (name, fallback) => theme.getPropertyValue(name).trim() || fallback;
+      const result = geometry.svgDocument(data, positions, sizes, {
+        scope, transform, width: svg.clientWidth, height: svg.clientHeight, selectedId, search: search.value, fontFamily,
+        colors: { background: css("--vscode-editor-background", "#fff"), text: css("--vscode-editor-foreground", "#222"),
+          node: css("--vscode-charts-blue", "#1976d2"), edge: css("--vscode-descriptionForeground", "#888"),
+          selected: css("--vscode-focusBorder", "#c05a00"), external: css("--vscode-charts-yellow", "#a17700"), missing: css("--vscode-errorForeground", "#d32f2f") }
+      });
+      const metadata = { scope, nodes: data.nodes.length, edges: data.edges.length };
+      if (format === "svg") {
+        vscode.postMessage({ type: "saveVisual", format, data: result.source, encoding: "utf8", ...metadata });
+        return;
+      }
+      const dimensions = geometry.rasterSize(result.width, result.height, scale);
+      const image = new Image();
+      await new Promise((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error("PNG rendering timed out. Export SVG instead.")), 15_000);
+        image.onload = () => { clearTimeout(timer); resolve(); };
+        image.onerror = () => { clearTimeout(timer); reject(new Error("Could not render SVG as PNG. Export SVG instead.")); };
+        image.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(result.source)}`;
+      });
+      const canvas = document.createElement("canvas");
+      canvas.width = dimensions.width; canvas.height = dimensions.height;
+      const context = canvas.getContext("2d");
+      if (!context) throw new Error("PNG canvas is unavailable. Export SVG instead.");
+      context.drawImage(image, 0, 0, canvas.width, canvas.height);
+      const output = canvas.toDataURL("image/png");
+      if (!output.startsWith("data:image/png;base64,")) throw new Error("PNG canvas exceeded the renderer's limits. Export SVG instead.");
+      vscode.postMessage({ type: "saveVisual", format: "png", data: output, encoding: "base64", ...metadata, ...dimensions });
+    } catch (error) {
+      vscode.postMessage({ type: "exportError", message: error instanceof Error ? error.message : String(error) });
     }
-    const image = new Image();
-    image.onload = () => {
-      const canvas = document.createElement("canvas"); canvas.width = svg.clientWidth * 2; canvas.height = svg.clientHeight * 2;
-      const context = canvas.getContext("2d"); context.scale(2, 2); context.fillStyle = "white"; context.fillRect(0, 0, svg.clientWidth, svg.clientHeight); context.drawImage(image, 0, 0);
-      vscode.postMessage({ type: "saveVisual", format: "png", data: canvas.toDataURL("image/png"), encoding: "base64" });
-    };
-    image.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(source)}`;
   }
 
-  svg.addEventListener("pointerdown", (event) => { if (event.target === svg || event.target === world) panning = { x: event.clientX, y: event.clientY, tx: transform.x, ty: transform.y }; });
-  svg.addEventListener("pointermove", (event) => { if (panning) { viewportCustomized = true; transform.x = panning.tx + event.clientX - panning.x; transform.y = panning.ty + event.clientY - panning.y; updateTransform(); } });
-  svg.addEventListener("pointerup", () => { panning = undefined; saveState(); });
-  svg.addEventListener("click", (event) => { if (event.target === svg) { selectedId = undefined; direction.value = "all"; resetDetails(); updateDepthControl(); render(); } });
-  svg.addEventListener("wheel", (event) => { event.preventDefault(); viewportCustomized = true; const rect = svg.getBoundingClientRect(); const x = event.clientX - rect.left, y = event.clientY - rect.top; const next = Math.max(.05, Math.min(8, transform.k * Math.exp(-event.deltaY * .001))); transform.x = x - ((x - transform.x) / transform.k) * next; transform.y = y - ((y - transform.y) / transform.k) * next; transform.k = next; updateTransform(); }, { passive: false });
+  function drawDraggedNode() {
+    dragFrame = undefined;
+    if (!dragging) return;
+    const point = positions.get(dragging.id);
+    nodeElements.get(dragging.id)?.setAttribute("transform", `translate(${point.x},${point.y})`);
+    for (const edge of graph.edges) {
+      if (edge.source !== dragging.id && edge.target !== dragging.id) continue;
+      const line = edgeElements.get(edge.id), value = geometry.edgeGeometry(edge, positions, sizes);
+      if (line && value) for (const [name, item] of Object.entries(value)) if (name !== "bounds") line.setAttribute(name, item);
+    }
+    saveStateSoon();
+  }
+  svg.addEventListener("pointerdown", (event) => {
+    if (event.button === 0 && (event.target === svg || event.target === world)) {
+      suppressClick = false; panning = { x: event.clientX, y: event.clientY, tx: transform.x, ty: transform.y };
+      pointerNodeId = undefined;
+      svg.setPointerCapture(event.pointerId);
+    }
+  });
+  svg.addEventListener("pointermove", (event) => {
+    if (dragging) {
+      const current = screenToWorld(event.clientX, event.clientY), value = positions.get(dragging.id);
+      if (Math.hypot(event.clientX - dragging.x, event.clientY - dragging.y) > 4) suppressClick = true;
+      value.x += current.x - dragging.start.x; value.y += current.y - dragging.start.y; dragging.start = current;
+      if (dragFrame === undefined) dragFrame = requestAnimationFrame(drawDraggedNode);
+    } else if (panning) {
+      if (Math.hypot(event.clientX - panning.x, event.clientY - panning.y) > 4) suppressClick = true;
+      viewportCustomized = true; transform.x = panning.tx + event.clientX - panning.x; transform.y = panning.ty + event.clientY - panning.y; updateTransform();
+    }
+  });
+  function finishPointer(event) {
+    if (dragging) drawDraggedNode();
+    dragging = undefined; panning = undefined;
+    if (svg.hasPointerCapture?.(event.pointerId)) svg.releasePointerCapture(event.pointerId);
+    saveState();
+  }
+  svg.addEventListener("pointerup", finishPointer);
+  svg.addEventListener("pointercancel", finishPointer);
+  svg.addEventListener("lostpointercapture", (event) => {
+    // Renderer/frame transitions can drop capture while the button is still
+    // held. Keep the gesture alive and reacquire on the stable SVG owner.
+    if ((event.buttons & 1) && (dragging || panning)) {
+      try { svg.setPointerCapture(event.pointerId); return; } catch { /* Pointer is no longer active. */ }
+    }
+    finishPointer(event);
+  });
+  svg.addEventListener("click", (event) => {
+    if (suppressClick) { suppressClick = false; return; }
+    if (pointerNodeId) { const node = graph.nodes.find((item) => item.id === pointerNodeId); selectedId = pointerNodeId; showNode(node); render(direction.value !== "all"); return; }
+    if (event.target === svg || event.target === world) { const traced = direction.value !== "all"; selectedId = undefined; direction.value = "all"; resetDetails(); updateDepthControl(); render(traced); }
+  });
+  svg.addEventListener("dblclick", (event) => {
+    const node = graph?.nodes.find((item) => item.id === pointerNodeId);
+    if (node && !suppressClick) { event.stopPropagation(); vscode.postMessage({ type: "openFile", path: node.path, line: node.line, character: node.character }); }
+  });
+  svg.addEventListener("wheel", (event) => { event.preventDefault(); viewportCustomized = true; const rect = svg.getBoundingClientRect(); const x = event.clientX - rect.left, y = event.clientY - rect.top; const next = Math.max(1e-12, Math.min(8, transform.k * Math.exp(Math.max(-20, Math.min(20, -event.deltaY * .001))))); transform.x = x - ((x - transform.x) / transform.k) * next; transform.y = y - ((y - transform.y) / transform.k) * next; transform.k = next; updateTransform(); }, { passive: false });
   search.addEventListener("input", () => render());
   layout.addEventListener("change", () => { calculateLayout(layout.value); render(); fit(); });
-  direction.addEventListener("change", () => { updateDepthControl(); render(); fit(); });
-  for (const control of [depth, external, isolated]) control.addEventListener("change", () => { render(); fit(); });
+  direction.addEventListener("change", () => { updateDepthControl(); render(true); fit(); });
+  for (const control of [depth, external, isolated]) control.addEventListener("change", () => { render(true); fit(); });
   document.getElementById("fit").addEventListener("click", fit);
   document.getElementById("refresh").addEventListener("click", () => {
     const message = { type: "refresh" };
@@ -478,7 +508,8 @@
       graph = event.data.graph;
       graphKey = incomingKey;
       if (sameGraph) { render(); return; }
-      positions = new Map(); selectedId = undefined;
+      positions = new Map(); sizes.clear(); selectedId = undefined;
+      dragging = undefined; panning = undefined; pointerNodeId = undefined;
       viewportCustomized = false; transform = { x: 0, y: 0, k: 1 };
       resetDetails(); search.value = ""; direction.value = "all";
       external.checked = true; isolated.checked = true;
@@ -494,8 +525,8 @@
       const restored = restoreState(event.data.viewState ?? initialState);
       updateDepthControl();
       render(!restored); restoreDetails();
-      if (!restored || !viewportCustomized) requestAnimationFrame(fit);
-    } else if (event.data.type === "requestExport") exportVisual(event.data.format);
+      if (!restored || !viewportCustomized) requestAnimationFrame(() => { if (!viewportCustomized) fit(); });
+    } else if (event.data.type === "requestExport") void exportVisual(event.data.format, event.data.scope, event.data.scale);
     else if (event.data.type === "showProblems") showProblems();
     else if (event.data.type === "restoreError") { summary.textContent = event.data.message; resetDetails(); }
   });

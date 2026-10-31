@@ -9,7 +9,9 @@ class Element {
   public attributes: Record<string, string> = {};
   public listeners = new Map<string, Array<(event: any) => void>>();
   public value = "";
-  public textContent = "";
+  private ownText = "";
+  public get textContent(): string { return this.ownText + this.children.map((child) => child.textContent).join(""); }
+  public set textContent(value: string) { this.ownText = value; this.children = []; }
   public checked = true;
   public disabled = false;
   public hidden = false;
@@ -19,6 +21,10 @@ class Element {
   public options = [{ textContent: "" }, { textContent: "" }, { textContent: "" }];
   public clientWidth = 1000;
   public clientHeight = 600;
+  public captured = new Set<number>();
+  public setPointerCapture(id: number): void { this.captured.add(id); }
+  public hasPointerCapture(id: number): boolean { return this.captured.has(id); }
+  public releasePointerCapture(id: number): void { this.captured.delete(id); }
   public get firstChild(): Element | undefined { return this.children[0]; }
   public setAttribute(key: string, value: string): void { this.attributes[key] = value; }
   public getAttribute(key: string): string | undefined { return this.attributes[key]; }
@@ -30,7 +36,7 @@ class Element {
     const callbacks = this.listeners.get(name) ?? []; callbacks.push(listener); this.listeners.set(name, callbacks);
   }
   public trigger(name: string, values: Record<string, unknown> = {}): void {
-    const event = { target: this, stopPropagation() {}, preventDefault() {}, ...values };
+    const event = { target: this, button: 0, pointerId: 1, clientX: 0, clientY: 0, stopPropagation() {}, preventDefault() {}, ...values };
     for (const listener of this.listeners.get(name) ?? []) listener(event);
   }
   public getBoundingClientRect() { return { left: 0, top: 0, width: this.clientWidth, height: this.clientHeight }; }
@@ -57,9 +63,11 @@ function webview(initialState?: unknown) {
     window: { addEventListener: (name: string, listener: (event: any) => void) => events.set(name, listener) },
     requestAnimationFrame: (callback: () => void) => { frames.push(callback); return frames.length; }
   };
-  vm.runInNewContext(readFileSync(path.resolve(__dirname, "../../media/graph.js"), "utf8"), context);
+  const realm = vm.createContext(context);
+  vm.runInContext(readFileSync(path.resolve(__dirname, "../../media/graphGeometry.js"), "utf8"), realm);
+  vm.runInContext(readFileSync(path.resolve(__dirname, "../../media/graph.js"), "utf8"), realm);
   function flush() { for (let count = 0; frames.length && count < 20; count++) frames.shift()!(); assert.equal(frames.length, 0); }
-  function send(value: unknown) { events.get("message")?.({ data: value }); flush(); }
+  function send(value: unknown, finish = true) { events.get("message")?.({ data: value }); if (finish) flush(); }
   function load(value = graph, viewState?: unknown) { send({ type: "setGraph", graph: value, defaultLayout: "grid", viewState }); }
   function nodes() { return (get("graph").children[1]?.children ?? []).filter((node) => node.attributes.class?.startsWith("node")); }
   return { get, flush, send, load, nodes, state: () => snapshot, events, messages };
@@ -112,4 +120,67 @@ test("stale or malformed webview state cannot apply invalid positions or transfo
   const stale = webview({ ...snapshot, graphKey: "another graph" }); stale.load();
   assert.equal(stale.get("search").value, "");
   assert.equal(stale.nodes().length, 4);
+  const oldGeometry = first.state(); delete oldGeometry.geometryVersion;
+  oldGeometry.controls.search = "a.m";
+  oldGeometry.positions = graph.nodes.map((node) => [node.id, { x: 0, y: 0 }]);
+  oldGeometry.transform = { x: 0, y: 0, k: 8 };
+  const migrated = webview(oldGeometry); migrated.load();
+  assert.equal(migrated.get("search").value, "a.m", "migration lost controls");
+  assert.equal(migrated.state().geometryVersion, 1);
+  assert.ok(migrated.state().positions.some(([, point]: [string, { x: number; y: number }]) => point.x !== 0 || point.y !== 0), "old overlapping positions survived the geometry migration");
+});
+
+test("background panning retains selection and trace direction; a real background click clears them", () => {
+  const view = webview(); view.load();
+  view.nodes().find((node) => node.attributes["data-node-id"] === "b")!.trigger("click");
+  view.get("direction").value = "dependencies"; view.get("direction").trigger("change");
+  const svg = view.get("graph");
+  svg.trigger("pointerdown", { clientX: 20, clientY: 20 });
+  svg.trigger("lostpointercapture", { buttons: 1 });
+  svg.trigger("pointermove", { clientX: 220, clientY: 180 });
+  svg.trigger("pointerup"); svg.trigger("click"); view.flush();
+  assert.equal(view.state().selectedId, "b");
+  assert.equal(view.get("direction").value, "dependencies");
+  assert.equal(view.get("depth").disabled, false);
+  svg.trigger("pointerdown"); svg.trigger("pointerup"); svg.trigger("click"); view.flush();
+  assert.equal(view.state().selectedId, undefined);
+  assert.equal(view.get("direction").value, "all");
+  assert.equal(view.get("depth").disabled, true);
+});
+
+test("fast node dragging keeps capture on the stable SVG and never rebuilds the node DOM", () => {
+  const view = webview(); view.load();
+  const node = view.nodes().find((item) => item.attributes["data-node-id"] === "b")!;
+  const svg = view.get("graph"), before = node.attributes.transform;
+  node.trigger("pointerdown", { clientX: 100, clientY: 100 });
+  assert.equal(svg.hasPointerCapture(1), true);
+  for (let index = 1; index <= 20; index++) svg.trigger("pointermove", { clientX: 100 + index * 40, clientY: 100 + index * 10 });
+  view.flush(); svg.trigger("pointerup"); view.flush();
+  assert.equal(view.nodes().find((item) => item === node), node);
+  assert.notEqual(node.attributes.transform, before);
+  assert.equal(svg.hasPointerCapture(1), false);
+  assert.ok(view.state().positions.some(([id, point]: [string, { x: number }]) => id === "b" && Number.isFinite(point.x)));
+});
+
+test("a click retargeted to the SVG capture owner still selects the pressed node", () => {
+  const view = webview(); view.load();
+  const node = view.nodes().find((item) => item.attributes["data-node-id"] === "b")!;
+  node.trigger("pointerdown", { clientX: 100, clientY: 100 });
+  view.get("graph").trigger("pointerup");
+  view.get("graph").trigger("click"); view.flush();
+  assert.equal(view.state().selectedId, "b");
+  view.get("graph").trigger("dblclick");
+  assert.ok(view.messages.some((message) => message.type === "openFile" && message.path === "/fixture/b.m"));
+});
+
+test("extreme wheel input keeps finite transforms and Fit recovers the complete graph", () => {
+  const view = webview();
+  view.send({ type: "setGraph", graph, defaultLayout: "grid" }, false);
+  view.get("graph").trigger("wheel", { clientX: 500, clientY: 300, deltaY: -100 }); view.flush();
+  assert.equal(view.state().viewportCustomized, true, "a queued initial Fit overwrote an early wheel gesture");
+  for (let index = 0; index < 30; index++) view.get("graph").trigger("wheel", { clientX: 500, clientY: 300, deltaY: 1e9 });
+  view.flush();
+  assert.ok(Number.isFinite(view.state().transform.x)); assert.ok(view.state().transform.k > 0);
+  view.get("fit").trigger("click"); view.flush();
+  assert.ok(view.state().transform.k > 1e-6);
 });

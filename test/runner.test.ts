@@ -11,7 +11,9 @@ const executable = process.env.MATLAB_VIZ_TEST_EXECUTABLE;
 
 test("real MATLAB runner: singleton JSON, exports, log files, errors, cancellation, and retry", {
   skip: !executable,
-  timeout: 240_000
+  // This check launches six real MATLAB processes. Licensing/startup latency
+  // on a busy desktop can exceed four minutes even when every check passes.
+  timeout: 600_000
 }, async () => {
   const outputDirectory = process.env.MATLAB_VIZ_TEST_ARTIFACTS
     ?? fs.mkdtempSync(path.join(os.tmpdir(), "matlab-viz-validation-"));

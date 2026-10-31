@@ -7,8 +7,11 @@ import { loadExtensionModule } from "./support/loadModule";
 function panelHarness(pendingTab = false) {
   const created: any[] = [];
   const editorCommands: Array<{ name: string; args: unknown[] }> = [];
-  const groups = [{ tabs: [] as any[] }, { tabs: pendingTab ? [{ input: { viewType: "mainThreadWebview-matlabViz.graph" } }] : [] }];
-  const tabGroups = { all: groups, activeTabGroup: groups[0] };
+  const groups = [{ viewColumn: 1, tabs: [] as any[] }, { viewColumn: 2, tabs: pendingTab ? [{ input: { viewType: "mainThreadWebview-matlabViz.graph" } }] : [] }];
+  let activeIndex = 0;
+  // The API may expose a different wrapper for the same group. Identity is
+  // not a reliable way to recognize the group containing a lazy webview tab.
+  const tabGroups = { all: groups, get activeTabGroup() { return { ...groups[activeIndex] }; } };
   const uri = (fsPath: string) => ({ fsPath, toString: () => fsPath });
   const makePanel = (column: number) => {
     let receiver: (message: unknown) => unknown;
@@ -30,7 +33,7 @@ function panelHarness(pendingTab = false) {
     vscode: { Uri: { joinPath: (value: { fsPath: string }, ...parts: string[]) => uri(path.join(value.fsPath, ...parts)) },
       ViewColumn: { One: 1 }, commands: { async executeCommand(name: string, ...args: unknown[]) {
         editorCommands.push({ name, args });
-        if (name === "workbench.action.focusNextGroup") tabGroups.activeTabGroup = groups[1];
+        if (name === "workbench.action.focusNextGroup") activeIndex = 1;
       } }, window: {
         tabGroups,
         createWebviewPanel: () => { const panel = makePanel(1); created.push(panel); return panel; },
@@ -74,6 +77,7 @@ test("Show activates a lazily restored graph tab without creating a duplicate pa
   assert.equal(created.length, 0);
   assert.deepEqual(editorCommands, [
     { name: "workbench.action.focusNextGroup", args: [] },
+    { name: "workbench.action.focusActiveEditorGroup", args: [] },
     { name: "workbench.action.openEditorAtIndex", args: [0] }
   ]);
   const restored = makePanel(2);

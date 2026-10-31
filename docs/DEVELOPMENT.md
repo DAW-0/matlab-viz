@@ -177,6 +177,51 @@ Unit tests separately cover delayed cache loading, invalid caches/targets,
 legacy graph handling, atomic-save failure, panel adoption without relocation,
 and malformed or stale webview state.
 
+## Real-renderer and visual-export tests
+
+The same isolated startup harness has an optional `visual` phase:
+
+```powershell
+npm run test:compile
+npm run build
+& .\test\host\runRestoration.ps1 `
+  -FixturesRoot 'E:\_Git\matlab-viz\.tools\validation\0.3.5\host-fixtures' `
+  -GraphFile 'E:\_Git\matlab-viz\.tools\validation\0.3.5\west-control-fresh.json' `
+  -ArtifactsRoot 'E:\_Git\matlab-viz\.tools\validation\0.3.7\visual-new-run' `
+  -Phases visual
+```
+
+Supply a complete MATLAB Viz JSON graph with `-GraphFile` (or
+`MATLAB_VIZ_TEST_GRAPH`), preferably a large graph with an ordinary single-edge
+dependency suitable for a two-node trace. The retained 515-file/648-edge
+repository snapshot was used for this release. The snapshot is not committed.
+Use a fresh artifact directory so save dialogs do not ask to overwrite files.
+
+The phase seeds only its isolated cache, without rerunning the repository
+analyzer. It checks real SVG node rectangles and text measurements in all four
+layouts, pairwise overlaps, and Fit clipping. It exercises the actual export
+format/framing/resolution pickers and saves files through the editor's simple
+file dialog, enabled only in this isolated profile. SVG is parsed by the
+browser's XML parser and checked for vector nodes, complete arrowed edges,
+and no embedded bitmap. PNG is decoded and inspected for dimensions and
+nonblank pixels. A deliberate oversized PNG must produce an actionable error.
+
+Trusted Chromium mouse events verify click selection, panning without losing
+the trace, rapid dragging, pointer-capture recovery, and node DOM identity.
+The harness retains images, screenshots, pointer-event JSON, result JSON, and
+editor-managed output logs. Export destination persistence, cancelled/failed
+saves, and error messages also have deterministic controller-adapter tests.
+
+`media/graphGeometry.js` is the shared browser/Node geometry module. Tests
+cover 515 varied rectangles, a 5,000-node chain, cycles, boundary intersections,
+self-loops, XML/Unicode label preservation, viewport-independent SVG, and
+explicit PNG limits. Fake-DOM state tests cover legacy-geometry migration,
+captured clicks/double-clicks, drag DOM stability, panning, and extreme zoom.
+
+The debugger adapter auto-attaches recursively to nested editor frames and
+reconnects closed targets. This is test infrastructure only, not an extension
+debugging port or shipped application dependency.
+
 ## Release checklist
 
 1. Choose and add a distribution license.

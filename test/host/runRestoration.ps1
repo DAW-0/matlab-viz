@@ -2,7 +2,8 @@ param(
     [Parameter(Mandatory = $true)][string]$FixturesRoot,
     [string]$ArtifactsRoot,
     [string]$EditorExecutable,
-    [ValidateSet('prepare-call', 'restore-call', 'reload-call', 'prepare-reference', 'restore-reference', 'reload-reference', 'provider-timeout')]
+    [string]$GraphFile,
+    [ValidateSet('prepare-call', 'restore-call', 'reload-call', 'prepare-reference', 'restore-reference', 'reload-reference', 'provider-timeout', 'visual')]
     [string[]]$Phases = @('prepare-call', 'restore-call', 'reload-call', 'prepare-reference', 'restore-reference', 'reload-reference', 'provider-timeout')
 )
 
@@ -18,7 +19,7 @@ if (-not (Test-Path -LiteralPath (Join-Path $FixturesRoot 'project\entry.m'))) {
 }
 New-Item -ItemType Directory -Path $ArtifactsRoot -Force | Out-Null
 $environmentNames = @('ELECTRON_RUN_AS_NODE', 'MATLAB_VIZ_TEST_ARTIFACTS', 'MATLAB_VIZ_HOST_PROFILE',
-    'MATLAB_VIZ_HOST_FIXTURES', 'MATLAB_VIZ_RESTORE_STAGE', 'MATLAB_VIZ_RESTORE_RUN_ID', 'MATLAB_VIZ_DEBUG_ENDPOINT')
+    'MATLAB_VIZ_HOST_FIXTURES', 'MATLAB_VIZ_RESTORE_STAGE', 'MATLAB_VIZ_RESTORE_RUN_ID', 'MATLAB_VIZ_DEBUG_ENDPOINT', 'MATLAB_VIZ_TEST_GRAPH')
 $previousEnvironment = @{}
 foreach ($name in $environmentNames) { $previousEnvironment[$name] = [Environment]::GetEnvironmentVariable($name, 'Process') }
 try {
@@ -28,6 +29,7 @@ try {
     # Reusing a failed run's editor layout makes the preparation non-deterministic.
     $env:MATLAB_VIZ_HOST_PROFILE = Join-Path $ArtifactsRoot ('persistent-profile-' + [guid]::NewGuid().ToString('N').Substring(0, 8))
     $env:MATLAB_VIZ_HOST_FIXTURES = $FixturesRoot
+    if ($GraphFile) { $env:MATLAB_VIZ_TEST_GRAPH = (Resolve-Path -LiteralPath $GraphFile).Path }
     foreach ($phase in $Phases) {
         $listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, 0)
         $listener.Start()

@@ -4,6 +4,27 @@ All notable changes to MATLAB Viz will be documented here.
 
 ## [Unreleased]
 
+## [0.3.7]
+
+### Fixed
+
+- Automatic layouts use measured, wrapped node dimensions instead of fixed spacing. Hierarchical layout handles cycles using strongly connected components; force layout separates colliding rectangles.
+- Fit uses actual node/self-loop bounds and no longer clamps large graphs to an excessive minimum zoom.
+- A queued startup Fit does not overwrite early user zoom. Older saved geometry is recalculated once without losing controls or selection.
+- Showing a lazily restored auxiliary graph explicitly focuses its editor group before selecting the tab, instead of reopening a main-window editor.
+- Edge endpoints use rectangle intersections rather than an elliptical approximation; self-references have visible loops.
+- Node labels retain their full text, wrapping into multiple lines instead of truncating long paths.
+- Dragging updates the node and incident edges in place with pointer capture on the stable SVG. Dropped capture is recovered while the button remains held; captured clicks/double-clicks still select/navigate correctly.
+- Background panning does not clear the selected trace. Changing trace/visibility filters relayouts the visible graph, avoiding stale mixed-layout positions.
+- Visual exports contain portable vector text/shapes and explicit arrowheads. Filtered-graph framing includes offscreen nodes and is independent of viewport pan/zoom.
+- Export remembers the last successful directory across formats and sessions. Cancelled/failed saves do not change it, and export failures are logged and reported without blocking analysis.
+
+### Added
+
+- Explicit filtered-graph/viewport export framing and 1×/2×/4× PNG resolution.
+- Clear PNG safety limits (32 megapixels, 16,384 pixels per side) with SVG/lower-resolution alternatives instead of blank or silently downscaled output.
+- Shared geometry/export regressions and real VSCodium renderer, trusted mouse, picker/save-dialog, SVG/PNG, and export-log checks.
+
 ## [0.3.6]
 
 ### Fixed

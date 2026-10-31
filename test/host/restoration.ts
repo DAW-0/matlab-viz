@@ -63,6 +63,9 @@ export async function run(): Promise<void> {
       await vscode.workspace.getConfiguration("window").update("restoreWindows", "preserve", vscode.ConfigurationTarget.Global);
       await select("entry.m", "entry");
       await vscode.commands.executeCommand("matlabViz.showCallees");
+      // An existing tab can be behind the source editor. Analysis deliberately
+      // updates it without stealing focus; show it before waiting on paint RAFs.
+      await vscode.commands.executeCommand("matlabViz.showGraph");
       const first = await cached(); assert.equal(first.metadata.analysisDepth, 1);
       const view = await debug.graph();
       await view.evaluate("const depth=document.getElementById('depth');depth.value='2';depth.dispatchEvent(new Event('change'));document.getElementById('refresh').click();return true;");
@@ -207,6 +210,13 @@ export async function run(): Promise<void> {
     } else throw new Error(`Unknown restoration phase: ${stage}`);
     await fs.writeFile(path.join(artifacts, `${stage}-result.json`), JSON.stringify({ passed: true, observations }, null, 2));
   } catch (error) {
+    log(`Tabs at failure: ${JSON.stringify(vscode.window.tabGroups.all.map((group) => ({ column: group.viewColumn, active: group.isActive,
+      tabs: group.tabs.map((tab) => ({ label: tab.label, active: tab.isActive, viewType: (tab.input as vscode.TabInputWebview).viewType })) })))}`);
+    try {
+      const workbench = await debug.workbench();
+      const shot = await workbench.request("Page.captureScreenshot", { format: "png" });
+      await fs.writeFile(path.join(artifacts, `${stage}-failure.png`), Buffer.from(shot.data, "base64"));
+    } catch { /* Preserve the original failure. */ }
     log(error instanceof Error ? error.stack ?? error.message : String(error));
     await fs.writeFile(path.join(artifacts, `${stage}-result.json`), JSON.stringify({ passed: false, observations }, null, 2));
     throw error;

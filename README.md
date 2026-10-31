@@ -2,7 +2,7 @@
 
 MATLAB Viz is a MATLAB-first dependency explorer for VS Code and VSCodium. It runs MATLAB's documented dependency-analysis APIs locally, converts the results into a portable graph model, and presents that model as an interactive dependency and impact graph.
 
-> **Development status:** `0.3.6` is a working development build. MATLAB Project and folder backends are exercised by automated MATLAB tests and repository acceptance tests. Function call-hierarchy and symbol-reference graphs use the installed MATLAB language service and a conservative MATLAB syntax fallback. See the [acceptance findings](docs/ACCEPTANCE_TESTS.md) for known limitations and pending repairs.
+> **Development status:** `0.3.7` is a working development build. MATLAB Project and folder backends are exercised by automated MATLAB tests and repository acceptance tests. Function call-hierarchy and symbol-reference graphs use the installed MATLAB language service and a conservative MATLAB syntax fallback. See the [acceptance findings](docs/ACCEPTANCE_TESTS.md) for known limitations and pending repairs.
 
 ## Why MATLAB Viz?
 
@@ -61,7 +61,7 @@ To create an installable package:
 
 ```powershell
 npm run package
-codium --install-extension matlab-viz-0.3.6.vsix
+codium --install-extension matlab-viz-0.3.7.vsix
 ```
 
 ## Standalone MATLAB API
@@ -136,6 +136,47 @@ does not change the repository analysis scope and is disabled while
 **Entire graph** is selected. MATLAB diagnostics do not invalidate a completed
 graph; use the graph toolbar's **Notices** button to inspect them and open the
 affected source files.
+
+## Layout, navigation, and visual exports
+
+All layouts account for the full wrapped label dimensions. Hierarchical layout
+groups cycles into the same rank; Force uses a hierarchical fallback above 350
+nodes to bound computation. Fit includes every visible node and self-loop,
+even on a large graph. Seeing all 515 files at once naturally makes labels
+small on screen; zoom in or use a vector export to read them.
+
+Dragging updates nodes in place. Panning background space retains the selected
+node and trace; a stationary background click clears the selection. Changing
+direction, trace depth, or visibility filters relayouts the visible nodes;
+choose a layout again to undo manually overlapping positions. Saved views from
+older builds get new positions/Fit once while retaining their controls and
+selection. No MATLAB reanalysis is required for that geometry migration.
+
+The Export menu distinguishes complete data from visual output:
+
+- Data exports do not apply display filters: JSON contains the complete model,
+  DOT includes all nodes/edges, and CSV contains the dependency-edge table.
+- SVG and PNG offer **Filtered graph** (the default framing choice) or
+  **Current viewport**. Filtered graph includes offscreen nodes allowed by the
+  current dependency/impact, external, and isolated filters. Search only dims
+  nonmatching nodes; it does not exclude them from export.
+- SVG contains real, zoomable text/shapes and explicit arrowheads with full
+  labels. It does not embed a screenshot and does not depend on editor CSS.
+- PNG offers 1×, 2×, or 4× pixel resolution. These scales correspond to the
+  exported graph's native dimensions, not its current on-screen zoom. Maximum
+  output is 32 megapixels and 16,384 pixels per side. If a graph exceeds those
+  bounds, choose SVG, a lower scale, or a smaller/compact filtered layout.
+  The extension reports the requested dimensions instead of silently blurring
+  or returning a blank image.
+- Successful saves remember their directory across formats and sessions.
+  Cancelling or failing a save does not replace that preference. The MATLAB
+  Viz log records framing/resolution requests, rendered counts/dimensions,
+  successful filenames/byte counts, and export errors.
+
+Large or dense graphs can still have crossing edges. Automatic layouts avoid
+node overlap, not every possible edge crossing; manually dragged nodes may
+intentionally overlap. The standalone MATLAB renderer is separate from these
+webview export improvements.
 
 ## Graph semantics
 

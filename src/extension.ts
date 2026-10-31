@@ -31,7 +31,7 @@ class MatlabVizController implements vscode.Disposable {
   public readonly ready: Promise<void>;
 
   public constructor(private readonly context: vscode.ExtensionContext) {
-    this.panel = new GraphPanel(context.extensionUri, (depth) => this.refresh(depth));
+    this.panel = new GraphPanel(context.extensionUri, (depth) => this.refresh(depth), { state: context.globalState, output: this.output });
     this.sidebar = new SidebarProvider(() => this.analyze(), () => this.showGraph(), () => this.refresh());
     this.status.command = "matlabViz.showGraph";
     this.status.tooltip = "Show the MATLAB Viz dependency graph";

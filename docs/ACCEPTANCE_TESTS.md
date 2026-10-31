@@ -53,20 +53,26 @@ edges; a referenced Project added two external functions and one edge.
 
 See [0.3.6 validation](VALIDATION_0.3.6.md) for the isolated-editor and regression results.
 
+## Third repair batch: 0.3.7
+
+- Layouts use measured, wrapped labels; automatic positions avoid rectangle overlap. Hierarchical ranks handle cycles, and Fit includes actual node/self-loop bounds without the old lower zoom clamp.
+- Arrow endpoints intersect the actual rectangles, and SVG/PNG preserve full labels and explicit arrowheads.
+- Stable SVG pointer capture, capture recovery, in-place drag updates, and gesture-aware clicking preserve the selected trace while panning.
+- Visual export defaults to all filtered nodes, including offscreen nodes; viewport framing is explicit. PNG resolution is selectable with reported safety limits.
+- Export destinations persist across formats/sessions, with cancellation/failure regressions and actual output-log checks.
+- Old geometry is recalculated once on upgrade, retaining selection and controls. Hidden-tab restoration identifies editor groups by column rather than wrapper-object identity.
+
+See [0.3.7 validation](VALIDATION_0.3.7.md) for the real-renderer, mouse, export, and regression evidence.
+
 ## Pending repairs and coverage gaps
 
 - Function references may return only the declaration, silently yielding a
   one-node graph. Reference tracing lacks the call hierarchy's syntax fallback.
 - Selected-folder analysis adds only that folder to MATLAB's path. Known
   external repository dependencies are unresolved even when inclusion is on.
-- Layouts can overlap nodes; some arrow endpoints reverse inside overlapping
-  rectangles. Fit/zoom lower bounds prevent large graphs from fitting.
-- Fast node dragging replaces the element holding pointer capture. Panning
-  can still clear selection and reset direction.
-- SVG/PNG capture the viewport, clip offscreen nodes, omit arrowhead styling, and have
-  truncated labels; fixed PNG resolution makes dense labels unreadable.
-- Export should remember its last successful destination and offer explicit
-  viewport/filtered-graph framing and PNG resolution.
+- Dense graphs still have crossing edges. Manually dragged nodes may overlap;
+  choosing a layout again restores automatic spacing. Very large graphs should
+  use vector SVG rather than an impractically large raster image.
 - Details need a resizable width; reference headings/counts and analysis-level
   external controls need clearer wording and placement.
 - Standalone MATLAB-rendered labels can intersect edges or approach boundaries.

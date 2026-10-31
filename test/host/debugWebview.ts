@@ -15,12 +15,15 @@ class Connection {
         this.pending.delete(message.id); clearTimeout(pending.timer);
         if (message.error) pending.reject(new Error(message.error.message)); else pending.resolve(message.result);
       } else if (message.method === "Target.attachedToTarget") {
+        void this.request("Target.setAutoAttach", { autoAttach: true, waitForDebuggerOnStart: false, flatten: true }, message.params.sessionId).catch(() => undefined);
         void this.request("Runtime.enable", {}, message.params.sessionId).catch(() => undefined);
       } else if (message.method === "Runtime.executionContextCreated") {
         if (message.params.context.auxData?.isDefault) this.contexts.push({ id: message.params.context.id, sessionId: message.sessionId });
       } else if (message.method === "Runtime.executionContextDestroyed") {
         const index = this.contexts.findIndex((context) => context.id === message.params.executionContextId && context.sessionId === message.sessionId);
         if (index >= 0) this.contexts.splice(index, 1);
+      } else if (message.method === "Runtime.executionContextsCleared") {
+        for (let index = this.contexts.length - 1; index >= 0; index--) if (this.contexts[index]!.sessionId === message.sessionId) this.contexts.splice(index, 1);
       }
     });
     socket.addEventListener("close", () => {
@@ -53,11 +56,26 @@ class Connection {
     return result.result.value;
   }
   public close(): void { this.socket.close(); }
+  public get isOpen(): boolean { return this.socket.readyState === WebSocket.OPEN; }
 }
 
 export class DebugWebview {
   private connections = new Map<string, { target: Target; connection: Connection }>();
   public constructor(private readonly endpoint: string) {}
+
+  public async workbench(): Promise<{ evaluate: (body: string) => Promise<any>; request: (method: string, params?: unknown) => Promise<any> }> {
+    const targets = await (await fetch(`${this.endpoint}/json/list`)).json() as Target[];
+    const target = targets.find((item) => item.type === "page" && /workbench\.html/.test(item.url));
+    if (!target?.webSocketDebuggerUrl) throw new Error("Isolated editor workbench target missing");
+    if (!this.connections.has(target.id)) this.connections.set(target.id, { target, connection: await Connection.open(target.webSocketDebuggerUrl) });
+    const connection = this.connections.get(target.id)!.connection;
+    for (const context of connection.contexts) {
+      if (await connection.evaluate(context, "return !!document.querySelector('.monaco-workbench');").catch(() => false)) {
+        return { evaluate: (body) => connection.evaluate(context, body), request: (method, params) => connection.request(method, params) };
+      }
+    }
+    throw new Error("Isolated editor workbench context missing");
+  }
 
   public async graph(timeout = 20_000, auxiliaryOnly = false): Promise<{ pageUrl: string; evaluate: (body: string) => Promise<any> }> {
     const deadline = Date.now() + timeout;
@@ -66,14 +84,17 @@ export class DebugWebview {
       const targets = await response.json() as Target[];
       for (const target of targets.filter((item) => item.type === "page" && item.webSocketDebuggerUrl)) {
         if (auxiliaryOnly && target.url !== "about:blank" && !/auxiliary/i.test(target.url)) continue;
-        if (!this.connections.has(target.id)) {
+        if (!this.connections.get(target.id)?.connection.isOpen) {
           try { this.connections.set(target.id, { target, connection: await Connection.open(target.webSocketDebuggerUrl!) }); } catch { continue; }
         }
         const connection = this.connections.get(target.id)!.connection;
         for (const context of [...connection.contexts]) {
           try {
             const found = await connection.evaluate(context, "const graph=document.getElementById('graph');return !!(graph && document.getElementById('summary') && graph.getBoundingClientRect().width>0 && graph.querySelector('g.node'));");
-            if (found) return { pageUrl: target.url, evaluate: (body: string) => connection.evaluate(context, body) };
+            if (found) {
+              await connection.evaluate(context, "return new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(()=>resolve(true))));");
+              return { pageUrl: target.url, evaluate: (body: string) => connection.evaluate(context, body) };
+            }
           } catch { /* Other contexts belong to the editor, not the graph. */ }
         }
       }
