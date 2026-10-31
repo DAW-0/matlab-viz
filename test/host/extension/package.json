@@ -1,0 +1,9 @@
+{
+  "name": "matlab-viz-restoration-tests",
+  "publisher": "matlab-viz-tests",
+  "version": "0.0.1",
+  "private": true,
+  "engines": { "vscode": "^1.95.0" },
+  "activationEvents": ["onStartupFinished"],
+  "main": "./bootstrap.cjs"
+}

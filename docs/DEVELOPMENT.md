@@ -136,6 +136,47 @@ See [acceptance findings](ACCEPTANCE_TESTS.md) for the manual test history and
 remaining work. A passing data-export regression does not imply that the
 known webview SVG/PNG framing and layout defects are repaired.
 
+## Persistent-window restoration tests
+
+The startup harness in `test/host/extension` runs against a normal, isolated
+editor profile. It does not use `--extensionTestsPath`: that mode uses an
+in-memory editor-state database and cannot verify full application restarts.
+The harness uses only fixtures and profiles under the chosen artifact root.
+
+```powershell
+npm run test:compile
+npm run build
+& .\test\host\runRestoration.ps1 `
+  -FixturesRoot 'E:\_Git\matlab-viz\.tools\validation\0.3.5\host-fixtures' `
+  -ArtifactsRoot 'E:\_Git\matlab-viz\.tools\validation\0.3.6\final-restoration'
+```
+
+Prepare the fixtures with `createMatlabVizHostFixtures` as described above.
+Pass `-EditorExecutable` to use another installed desktop editor. Each suite
+creates a fresh profile but reuses it across its seven sequential phases:
+
+1. Build an outgoing graph; change depth, select/filter, set layout/search,
+   customize zoom, and move its editor to an auxiliary window.
+2. Restart the application; compare the exact view state and Refresh from an
+   unrelated source cursor, checking the original outgoing function/depth.
+3. Invoke actual Reload Window; repeat view and Refresh-target checks.
+4. Build a variable-reference graph and select its reference edge/details.
+5. Restart; compare the view and Refresh the original variable anchor.
+6. Reload Window; repeat reference restoration and Refresh checks.
+7. Register a deliberately unresponsive Definition provider; verify the
+   one-second request warning and recovery after disposing that provider.
+
+The test-only debugger adapter connects to a loopback Chromium debug port on
+the isolated editor. It reads actual webview DOM state and dispatches UI events;
+it is not shipped in the VSIX. Result JSON files must be fresh and explicitly
+report success, since a normally quitting editor can exit zero after a test
+failure. Stdout/stderr, assertion logs, snapshots, profiles, and the real
+editor-managed MATLAB Viz logs are retained for diagnosis.
+
+Unit tests separately cover delayed cache loading, invalid caches/targets,
+legacy graph handling, atomic-save failure, panel adoption without relocation,
+and malformed or stale webview state.
+
 ## Release checklist
 
 1. Choose and add a distribution license.

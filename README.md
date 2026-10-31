@@ -2,7 +2,7 @@
 
 MATLAB Viz is a MATLAB-first dependency explorer for VS Code and VSCodium. It runs MATLAB's documented dependency-analysis APIs locally, converts the results into a portable graph model, and presents that model as an interactive dependency and impact graph.
 
-> **Development status:** `0.3.5` is a working development build. MATLAB Project and folder backends are exercised by automated MATLAB tests and repository acceptance tests. Function call-hierarchy and symbol-reference graphs use the installed MATLAB language service and a conservative MATLAB syntax fallback. See the [acceptance findings](docs/ACCEPTANCE_TESTS.md) for known limitations and pending repairs.
+> **Development status:** `0.3.6` is a working development build. MATLAB Project and folder backends are exercised by automated MATLAB tests and repository acceptance tests. Function call-hierarchy and symbol-reference graphs use the installed MATLAB language service and a conservative MATLAB syntax fallback. See the [acceptance findings](docs/ACCEPTANCE_TESTS.md) for known limitations and pending repairs.
 
 ## Why MATLAB Viz?
 
@@ -27,7 +27,7 @@ The Project backend is the programmatic form of MATLAB's built-in Dependency Ana
 - List required MathWorks products discovered by folder analysis.
 - Export the graph as JSON, Graphviz DOT, CSV, SVG, or PNG.
 - Optional automatic refresh when supported files change.
-- Persistent last-graph cache and a dedicated MATLAB Viz output log.
+- Persistent last-graph cache, restored graph views/Refresh targets, and a dedicated MATLAB Viz output log.
 - Cancellable MATLAB analysis process.
 - Build a caller-and-callee graph for the MATLAB function under the cursor.
 - Trace only callers or only callees to a configurable depth.
@@ -61,7 +61,7 @@ To create an installable package:
 
 ```powershell
 npm run package
-codium --install-extension matlab-viz-0.3.5.vsix
+codium --install-extension matlab-viz-0.3.6.vsix
 ```
 
 ## Standalone MATLAB API
@@ -121,6 +121,14 @@ visible trace and is also used as the analysis depth when **Refresh** is
 pressed. Refresh reuses the original function even while the graph webview has
 focus. The MATLAB Viz output log reports each traversal step and any provider
 timeouts.
+
+When a graph tab is left open, Reload Window and application restarts restore
+its layout, selection/details, filters, node positions, and custom viewport.
+Refresh also retains the original function/direction/depth or reference anchor,
+regardless of the current source cursor. Detached placement is retained when
+the editor restores its auxiliary windows. Older call graphs that lack a saved
+direction remain viewable; run the desired function command once before using
+Refresh on those graphs.
 
 For a file-dependency graph, **Trace depth** is a client-side display filter
 used after selecting a file and choosing **Dependencies** or **Impact**. It

@@ -22,6 +22,72 @@
   let world;
   let panning;
   let dragging;
+  let graphKey;
+  let detailSelection;
+  let viewportCustomized = false;
+  let stateFrame;
+  const initialState = vscode.getState();
+
+  function saveState() {
+    if (!graph) return;
+    vscode.setState({
+      version: 1, graphKey,
+      controls: { search: search.value, layout: layout.value, direction: direction.value,
+        depth: Number(depth.value), external: external.checked, isolated: isolated.checked },
+      selectedId, detailSelection, positions: [...positions], transform: { ...transform }, viewportCustomized
+    });
+  }
+
+  function saveStateSoon() {
+    if (stateFrame !== undefined) return;
+    stateFrame = requestAnimationFrame(() => { stateFrame = undefined; saveState(); });
+  }
+
+  function resetDetails() {
+    detailSelection = undefined;
+    details.replaceChildren();
+    const heading = document.createElement("h2"); heading.textContent = "Selection";
+    const paragraph = document.createElement("p"); paragraph.textContent = "Select a node or edge.";
+    details.append(heading, paragraph);
+  }
+
+  function restoreState(value) {
+    if (!value || value.version !== 1 || value.graphKey !== graphKey) return false;
+    const controls = value.controls || {};
+    if (typeof controls.search === "string") search.value = controls.search;
+    if (["force", "hierarchical", "circle", "grid"].includes(controls.layout)) layout.value = controls.layout;
+    if (["all", "dependencies", "impact"].includes(controls.direction)) direction.value = controls.direction;
+    if (Number.isInteger(controls.depth) && controls.depth >= 1 && controls.depth <= 20) depth.value = String(controls.depth);
+    if (typeof controls.external === "boolean") external.checked = controls.external;
+    if (typeof controls.isolated === "boolean") isolated.checked = controls.isolated;
+    const ids = new Set(graph.nodes.map((node) => node.id));
+    selectedId = ids.has(value.selectedId) ? value.selectedId : undefined;
+    if (!selectedId) direction.value = "all";
+    if (Array.isArray(value.positions)) {
+      for (const entry of value.positions) {
+        if (Array.isArray(entry) && ids.has(entry[0]) && entry[1]
+          && Number.isFinite(entry[1].x) && Number.isFinite(entry[1].y)) {
+          positions.set(entry[0], { x: entry[1].x, y: entry[1].y });
+        }
+      }
+    }
+    const view = value.transform;
+    if (view && Number.isFinite(view.x) && Number.isFinite(view.y) && Number.isFinite(view.k) && view.k > 0 && view.k <= 1e6) {
+      transform = { x: view.x, y: view.y, k: view.k };
+      viewportCustomized = value.viewportCustomized === true;
+    }
+    const selection = value.detailSelection;
+    if (selection && ((selection.kind === "node" && ids.has(selection.id))
+      || (selection.kind === "edge" && graph.edges.some((edge) => edge.id === selection.id))
+      || selection.kind === "problems")) detailSelection = selection;
+    return true;
+  }
+
+  function restoreDetails() {
+    if (detailSelection?.kind === "node") showNode(graph.nodes.find((node) => node.id === detailSelection.id));
+    else if (detailSelection?.kind === "edge") showEdge(graph.edges.find((edge) => edge.id === detailSelection.id));
+    else if (detailSelection?.kind === "problems") showProblems();
+  }
 
   function element(name, attributes = {}) {
     const value = document.createElementNS(NS, name);
@@ -117,6 +183,8 @@
   }
 
   function showProblems() {
+    detailSelection = { kind: "problems" };
+    saveStateSoon();
     details.replaceChildren();
     const heading = document.createElement("h2");
     heading.textContent = `Analysis notices (${graph?.problems.length || 0})`;
@@ -243,6 +311,7 @@
   }
 
   function render(reposition = false) {
+    if (!graph) return;
     while (svg.firstChild) svg.removeChild(svg.firstChild);
     const data = currentGraph();
     if (reposition || data.nodes.some((node) => !positions.has(node.id))) calculateLayout(layout.value);
@@ -260,6 +329,7 @@
     const query = search.value.trim().toLowerCase();
     for (const edge of data.edges) drawEdge(edge);
     for (const node of data.nodes) drawNode(node, query);
+    saveStateSoon();
     const itemLabel = graph.metadata.graphType === "files" || !graph.metadata.graphType ? "files" : "symbols";
     const edgeLabel = graph.metadata.graphType === "references" ? "references" : graph.metadata.graphType === "call-hierarchy" ? "calls" : "dependencies";
     summary.textContent = `${data.nodes.length}/${graph.nodes.length} ${itemLabel} · ${data.edges.length}/${graph.edges.length} ${edgeLabel} · ${graph.products.length} product references · ${problemSummary()} · ${graph.metadata.mode} · ${graph.metadata.durationSeconds.toFixed(1)} s`;
@@ -308,6 +378,9 @@
   }
 
   function showNode(node) {
+    if (!node) return;
+    detailSelection = { kind: "node", id: node.id };
+    saveStateSoon();
     details.replaceChildren();
     const heading = document.createElement("h2"); heading.textContent = node.label; details.appendChild(heading);
     const list = document.createElement("dl");
@@ -328,6 +401,9 @@
   }
 
   function showEdge(edge) {
+    if (!edge) return;
+    detailSelection = { kind: "edge", id: edge.id };
+    saveStateSoon();
     const source = graph.nodes.find((node) => node.id === edge.source), target = graph.nodes.find((node) => node.id === edge.target);
     details.replaceChildren();
     const heading = document.createElement("h2"); heading.textContent = "Dependency"; details.appendChild(heading);
@@ -339,12 +415,13 @@
   function showTooltip(event, text) { tooltip.textContent = text; tooltip.hidden = false; tooltip.style.left = `${event.clientX + 12}px`; tooltip.style.top = `${event.clientY + 12}px`; }
   function hideTooltip() { tooltip.hidden = true; }
   function transformValue() { return `translate(${transform.x},${transform.y}) scale(${transform.k})`; }
-  function updateTransform() { if (world) world.setAttribute("transform", transformValue()); }
+  function updateTransform() { if (world) world.setAttribute("transform", transformValue()); saveStateSoon(); }
   function screenToWorld(x, y) { const rect = svg.getBoundingClientRect(); return { x: (x - rect.left - transform.x) / transform.k, y: (y - rect.top - transform.y) / transform.k }; }
 
   function fit() {
     const data = currentGraph();
     if (!data.nodes.length) return;
+    viewportCustomized = false;
     const xs = data.nodes.map((node) => positions.get(node.id)?.x || 0), ys = data.nodes.map((node) => positions.get(node.id)?.y || 0);
     const minX = Math.min(...xs) - 190, maxX = Math.max(...xs) + 190, minY = Math.min(...ys) - 70, maxY = Math.max(...ys) + 70;
     const rect = svg.getBoundingClientRect();
@@ -376,10 +453,10 @@
   }
 
   svg.addEventListener("pointerdown", (event) => { if (event.target === svg || event.target === world) panning = { x: event.clientX, y: event.clientY, tx: transform.x, ty: transform.y }; });
-  svg.addEventListener("pointermove", (event) => { if (panning) { transform.x = panning.tx + event.clientX - panning.x; transform.y = panning.ty + event.clientY - panning.y; updateTransform(); } });
-  svg.addEventListener("pointerup", () => { panning = undefined; });
-  svg.addEventListener("click", (event) => { if (event.target === svg) { selectedId = undefined; direction.value = "all"; render(); } });
-  svg.addEventListener("wheel", (event) => { event.preventDefault(); const rect = svg.getBoundingClientRect(); const x = event.clientX - rect.left, y = event.clientY - rect.top; const next = Math.max(.05, Math.min(8, transform.k * Math.exp(-event.deltaY * .001))); transform.x = x - ((x - transform.x) / transform.k) * next; transform.y = y - ((y - transform.y) / transform.k) * next; transform.k = next; updateTransform(); }, { passive: false });
+  svg.addEventListener("pointermove", (event) => { if (panning) { viewportCustomized = true; transform.x = panning.tx + event.clientX - panning.x; transform.y = panning.ty + event.clientY - panning.y; updateTransform(); } });
+  svg.addEventListener("pointerup", () => { panning = undefined; saveState(); });
+  svg.addEventListener("click", (event) => { if (event.target === svg) { selectedId = undefined; direction.value = "all"; resetDetails(); updateDepthControl(); render(); } });
+  svg.addEventListener("wheel", (event) => { event.preventDefault(); viewportCustomized = true; const rect = svg.getBoundingClientRect(); const x = event.clientX - rect.left, y = event.clientY - rect.top; const next = Math.max(.05, Math.min(8, transform.k * Math.exp(-event.deltaY * .001))); transform.x = x - ((x - transform.x) / transform.k) * next; transform.y = y - ((y - transform.y) / transform.k) * next; transform.k = next; updateTransform(); }, { passive: false });
   search.addEventListener("input", () => render());
   layout.addEventListener("change", () => { calculateLayout(layout.value); render(); fit(); });
   direction.addEventListener("change", () => { updateDepthControl(); render(); fit(); });
@@ -392,10 +469,19 @@
   });
   problemsButton.addEventListener("click", showProblems);
   document.getElementById("export").addEventListener("click", () => vscode.postMessage({ type: "export" }));
-  window.addEventListener("resize", fit);
+  window.addEventListener("resize", () => { if (viewportCustomized) updateTransform(); else fit(); });
+  window.addEventListener("pagehide", saveState);
   window.addEventListener("message", (event) => {
     if (event.data.type === "setGraph") {
-      graph = event.data.graph; positions = new Map(); selectedId = undefined;
+      const incomingKey = JSON.stringify(event.data.graph.metadata);
+      const sameGraph = graph && incomingKey === graphKey;
+      graph = event.data.graph;
+      graphKey = incomingKey;
+      if (sameGraph) { render(); return; }
+      positions = new Map(); selectedId = undefined;
+      viewportCustomized = false; transform = { x: 0, y: 0, k: 1 };
+      resetDetails(); search.value = ""; direction.value = "all";
+      external.checked = true; isolated.checked = true;
       const functionGraph = graph.metadata.graphType === "call-hierarchy";
       if (functionGraph && graph.metadata.analysisDepth) depth.value = String(graph.metadata.analysisDepth);
       const onlyWarnings = graph.problems.length > 0 && graph.problems.every((problem) => problem.severity === "warning");
@@ -405,10 +491,13 @@
       direction.options[2].textContent = functionGraph ? "Callers" : "Impact";
       search.placeholder = graph.metadata.graphType === "files" || !graph.metadata.graphType ? "Search files…" : "Search symbols…";
       layout.value = functionGraph ? "hierarchical" : event.data.defaultLayout || "force";
+      const restored = restoreState(event.data.viewState ?? initialState);
       updateDepthControl();
-      render(true); requestAnimationFrame(fit);
+      render(!restored); restoreDetails();
+      if (!restored || !viewportCustomized) requestAnimationFrame(fit);
     } else if (event.data.type === "requestExport") exportVisual(event.data.format);
     else if (event.data.type === "showProblems") showProblems();
+    else if (event.data.type === "restoreError") { summary.textContent = event.data.message; resetDetails(); }
   });
   vscode.postMessage({ type: "ready" });
 })();

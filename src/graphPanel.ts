@@ -21,9 +21,15 @@ function nonce(): string {
   return Array.from({ length: 32 }, () => characters[Math.floor(Math.random() * characters.length)]).join("");
 }
 
+export const GRAPH_VIEW_TYPE = "matlabViz.graph";
+
 export class GraphPanel implements vscode.Disposable {
   private panel: vscode.WebviewPanel | undefined;
   private graph: DependencyGraph | undefined;
+  private ready = false;
+  private needsGraph = true;
+  private restoredState: unknown;
+  private unavailableMessage: string | undefined;
 
   public constructor(
     private readonly extensionUri: vscode.Uri,
@@ -34,13 +40,29 @@ export class GraphPanel implements vscode.Disposable {
     this.panel?.dispose();
   }
 
-  public show(graph?: DependencyGraph): void {
-    if (graph) {
-      this.graph = graph;
-    }
+  public async show(graph?: DependencyGraph): Promise<void> {
+    if (graph) this.setGraph(graph);
     if (!this.panel) {
-      this.panel = vscode.window.createWebviewPanel(
-        "matlabViz.graph",
+      // An editor-owned tab can exist before its lazy serializer has run.
+      // Activate that tab rather than creating a second graph in the main window.
+      const groups = vscode.window.tabGroups?.all ?? [];
+      const pending = groups.flatMap((group) => group.tabs.map((tab, index) => ({ group, tab, index })))
+        .find(({ tab }) => {
+          const type = (tab.input as vscode.TabInputWebview)?.viewType;
+          return type === GRAPH_VIEW_TYPE || type === `mainThreadWebview-${GRAPH_VIEW_TYPE}`;
+        });
+      if (pending) {
+        for (let attempt = 0; vscode.window.tabGroups.activeTabGroup !== pending.group && attempt < groups.length; attempt++) {
+          await vscode.commands.executeCommand("workbench.action.focusNextGroup");
+        }
+        if (vscode.window.tabGroups.activeTabGroup === pending.group) {
+          await vscode.commands.executeCommand("workbench.action.openEditorAtIndex", pending.index);
+        }
+        this.postGraph();
+        return;
+      }
+      const panel = vscode.window.createWebviewPanel(
+        GRAPH_VIEW_TYPE,
         "MATLAB Viz Dependency Graph",
         vscode.ViewColumn.One,
         {
@@ -49,33 +71,58 @@ export class GraphPanel implements vscode.Disposable {
           localResourceRoots: [vscode.Uri.joinPath(this.extensionUri, "media")]
         }
       );
-      this.panel.iconPath = vscode.Uri.joinPath(this.extensionUri, "media", "icon.svg");
-      this.panel.webview.html = this.html(this.panel.webview);
-      this.panel.webview.onDidReceiveMessage((message: WebviewMessage) => this.receive(message));
-      this.panel.onDidDispose(() => {
-        this.panel = undefined;
-      });
+      this.attach(panel);
     } else {
-      this.panel.reveal(this.panel.viewColumn);
+      // Omitting the column preserves the owning editor group/auxiliary window.
+      this.panel.reveal();
     }
     this.postGraph();
   }
 
   /** Update the graph without moving or focusing an existing webview panel. */
   public update(graph: DependencyGraph): void {
-    this.graph = graph;
-    if (this.panel) {
-      this.postGraph();
-    } else {
-      this.show();
-    }
+    this.setGraph(graph);
+    if (!this.panel) void this.show();
   }
 
-  public showProblems(): void {
+  /** Populate the cache without opening a new panel during activation. */
+  public setGraph(graph: DependencyGraph): void {
+    if (this.graph !== graph) this.needsGraph = true;
+    this.graph = graph;
+    this.unavailableMessage = undefined;
+    this.postGraph();
+  }
+
+  /** Adopt the editor-owned restored panel without revealing or relocating it. */
+  public restore(panel: vscode.WebviewPanel, state: unknown): void {
+    this.restoredState = state;
+    this.attach(panel);
+  }
+
+  public showUnavailable(message: string): void {
+    this.unavailableMessage = message;
+    this.postGraph();
+  }
+
+  private attach(panel: vscode.WebviewPanel): void {
+    if (this.panel && this.panel !== panel) this.panel.dispose();
+    this.panel = panel;
+    this.ready = false;
+    this.needsGraph = true;
+    panel.title = "MATLAB Viz Dependency Graph";
+    panel.iconPath = vscode.Uri.joinPath(this.extensionUri, "media", "icon.svg");
+    panel.webview.options = { enableScripts: true, localResourceRoots: [vscode.Uri.joinPath(this.extensionUri, "media")] };
+    panel.webview.onDidReceiveMessage((message: WebviewMessage) => this.panel === panel ? this.receive(message) : undefined);
+    panel.onDidDispose(() => { if (this.panel === panel) { this.panel = undefined; this.ready = false; } });
+    panel.onDidChangeViewState(() => { if (panel.visible && this.panel === panel) this.postGraph(); });
+    panel.webview.html = this.html(panel.webview);
+  }
+
+  public async showProblems(): Promise<void> {
     if (!this.graph?.problems.length) {
       return;
     }
-    this.show();
+    await this.show();
     void this.panel?.webview.postMessage({ type: "showProblems" });
   }
 
@@ -98,7 +145,7 @@ export class GraphPanel implements vscode.Disposable {
       return;
     }
     if (format.visual) {
-      this.show();
+      await this.show();
       await this.panel?.webview.postMessage({ type: "requestExport", format: format.extension });
       return;
     }
@@ -112,11 +159,27 @@ export class GraphPanel implements vscode.Disposable {
   }
 
   private postGraph(): void {
-    if (this.panel && this.graph) {
+    if (!this.panel || !this.ready) return;
+    if (!this.graph) {
+      if (this.unavailableMessage) void this.panel.webview.postMessage({ type: "restoreError", message: this.unavailableMessage });
+      return;
+    }
+    if (this.needsGraph) {
+      const sentGraph = this.graph;
+      const sentPanel = this.panel;
+      this.needsGraph = false;
+      const viewState = this.restoredState;
+      this.restoredState = undefined;
       void this.panel.webview.postMessage({
         type: "setGraph",
         graph: this.graph,
-        defaultLayout: defaultLayout()
+        defaultLayout: defaultLayout(),
+        viewState
+      }).then((delivered) => {
+        if (!delivered && this.panel === sentPanel && this.graph === sentGraph) {
+          this.needsGraph = true;
+          this.restoredState = viewState;
+        }
       });
     }
   }
@@ -124,6 +187,8 @@ export class GraphPanel implements vscode.Disposable {
   private async receive(message: WebviewMessage): Promise<void> {
     switch (message.type) {
       case "ready":
+        this.ready = true;
+        this.needsGraph = true;
         this.postGraph();
         break;
       case "openFile":

@@ -1,9 +1,12 @@
 import * as path from "node:path";
+import { randomUUID } from "node:crypto";
+import { rename } from "node:fs/promises";
 import * as vscode from "vscode";
 import { readAnalysisOptions, readSymbolAnalysisOptions } from "./configuration";
-import { GraphPanel, SidebarProvider } from "./graphPanel";
+import { readAnalysisTarget, storeCallTarget, storeReferenceTarget } from "./core/analysisState";
+import { GRAPH_VIEW_TYPE, GraphPanel, SidebarProvider } from "./graphPanel";
 import { runMatlabAnalysis } from "./matlabRunner";
-import type { DependencyGraph } from "./model";
+import { validateGraph, type DependencyGraph } from "./model";
 import {
   SymbolAnalyzer,
   type CallDirection,
@@ -25,6 +28,7 @@ class MatlabVizController implements vscode.Disposable {
   private lastSymbolAction: CallDirection | "references" | undefined;
   private lastCallSeed: ResolvedSymbol | undefined;
   private lastReferenceAnchor: SymbolAnchor | undefined;
+  public readonly ready: Promise<void>;
 
   public constructor(private readonly context: vscode.ExtensionContext) {
     this.panel = new GraphPanel(context.extensionUri, (depth) => this.refresh(depth));
@@ -34,17 +38,29 @@ class MatlabVizController implements vscode.Disposable {
     this.status.text = "$(type-hierarchy) MATLAB Viz";
     this.status.show();
 
+    this.ready = this.restoreGraph();
+
     context.subscriptions.push(
       this,
       this.output,
       this.panel,
       this.status,
+      vscode.window.registerWebviewPanelSerializer(GRAPH_VIEW_TYPE, {
+        deserializeWebviewPanel: async (panel, state: unknown) => {
+          this.output.appendLine("[MATLAB Viz] Restoring the editor-owned graph panel.");
+          // Adopt first so an early Show command can reuse the restored panel.
+          this.panel.restore(panel, state);
+          await this.ready;
+          if (this.graph) this.panel.setGraph(this.graph);
+          else this.panel.showUnavailable("The cached graph could not be restored. Run a MATLAB Viz analysis to generate a new graph.");
+        }
+      }),
       vscode.window.registerWebviewViewProvider("matlabViz.sidebar", this.sidebar),
       vscode.commands.registerCommand("matlabViz.analyzeWorkspace", () => this.analyze()),
       vscode.commands.registerCommand("matlabViz.analyzeSelection", (uri?: vscode.Uri) => this.analyze(uri)),
       vscode.commands.registerCommand("matlabViz.refresh", () => this.refresh()),
       vscode.commands.registerCommand("matlabViz.showGraph", () => this.showGraph()),
-      vscode.commands.registerCommand("matlabViz.exportGraph", () => this.panel.exportGraph()),
+      vscode.commands.registerCommand("matlabViz.exportGraph", async () => { await this.ready; await this.panel.exportGraph(); }),
       vscode.commands.registerCommand("matlabViz.openLogs", () => this.output.show()),
       vscode.commands.registerCommand("matlabViz.configureMatlab", () => this.configureMatlab()),
       vscode.commands.registerCommand("matlabViz.showCallHierarchy", () => this.analyzeCallHierarchy("both")),
@@ -56,7 +72,6 @@ class MatlabVizController implements vscode.Disposable {
       })
     );
     this.configureWatcher();
-    void this.restoreGraph();
   }
 
   public dispose(): void {
@@ -65,6 +80,7 @@ class MatlabVizController implements vscode.Disposable {
   }
 
   public async analyze(resource?: vscode.Uri): Promise<void> {
+    await this.ready;
     if (this.running) {
       void vscode.window.showInformationMessage("A MATLAB Viz analysis is already running.");
       return;
@@ -89,6 +105,7 @@ class MatlabVizController implements vscode.Disposable {
           this.lastCallSeed = undefined;
           this.lastReferenceAnchor = undefined;
           this.graph = result.graph;
+          result.graph.metadata.analysisTarget = { version: 1, type: "files" };
           this.panel.update(result.graph);
           this.sidebar.setGraph(result.graph);
           await this.persistGraph(result.graph);
@@ -104,12 +121,19 @@ class MatlabVizController implements vscode.Disposable {
   }
 
   public async refresh(depth?: number): Promise<void> {
+    await this.ready;
+    if (this.graph && this.graph.metadata.graphType && this.graph.metadata.graphType !== "files" && !this.lastSymbolAction) {
+      const message = "This cached symbol graph has no valid saved Refresh target. Run its MATLAB Viz function or reference command once to save a new target.";
+      this.output.appendLine(`[MATLAB Viz] ${message}`);
+      void vscode.window.showInformationMessage(message);
+      return;
+    }
     if (this.lastSymbolAction === "references") {
       await this.analyzeSymbolReferences(this.lastReferenceAnchor);
       return;
     }
     if (this.lastSymbolAction) {
-      await this.analyzeCallHierarchy(this.lastSymbolAction, this.lastCallSeed, depth);
+      await this.analyzeCallHierarchy(this.lastSymbolAction, this.lastCallSeed, depth ?? this.graph?.metadata.analysisDepth);
       return;
     }
     if (this.lastRoot) {
@@ -119,9 +143,10 @@ class MatlabVizController implements vscode.Disposable {
     }
   }
 
-  public showGraph(): void {
+  public async showGraph(): Promise<void> {
+    await this.ready;
     if (this.graph) {
-      this.panel.show(this.graph);
+      await this.panel.show(this.graph);
     } else {
       void vscode.window.showInformationMessage("No MATLAB Viz graph is loaded. Analyze a workspace first.");
     }
@@ -132,6 +157,7 @@ class MatlabVizController implements vscode.Disposable {
     seed?: ResolvedSymbol,
     requestedDepth?: number
   ): Promise<void> {
+    await this.ready;
     if (this.running) {
       void vscode.window.showInformationMessage("A MATLAB Viz analysis is already running.");
       return;
@@ -148,6 +174,7 @@ class MatlabVizController implements vscode.Disposable {
             options.maximumDepth = Math.max(1, Math.min(20, Math.trunc(requestedDepth)));
           }
           const result = await this.symbolAnalyzer.analyzeCallHierarchy(direction, options, token, seed);
+          result.graph.metadata.analysisTarget = storeCallTarget(direction, result.seed);
           this.lastSymbolAction = direction;
           this.lastCallSeed = result.seed;
           this.lastReferenceAnchor = undefined;
@@ -162,6 +189,7 @@ class MatlabVizController implements vscode.Disposable {
   }
 
   private async analyzeSymbolReferences(anchor?: SymbolAnchor): Promise<void> {
+    await this.ready;
     if (this.running) {
       void vscode.window.showInformationMessage("A MATLAB Viz analysis is already running.");
       return;
@@ -173,6 +201,7 @@ class MatlabVizController implements vscode.Disposable {
         { location: vscode.ProgressLocation.Notification, title: "MATLAB Viz: tracing symbol references…", cancellable: true },
         async (_progress, token) => {
           const result = await this.symbolAnalyzer.analyzeReferences(readSymbolAnalysisOptions(), token, anchor);
+          result.graph.metadata.analysisTarget = storeReferenceTarget(result.anchor);
           this.lastSymbolAction = "references";
           this.lastReferenceAnchor = result.anchor;
           this.lastCallSeed = undefined;
@@ -290,29 +319,69 @@ class MatlabVizController implements vscode.Disposable {
 
   private async persistGraph(graph: DependencyGraph): Promise<void> {
     const folder = this.context.storageUri ?? this.context.globalStorageUri;
-    await vscode.workspace.fs.createDirectory(folder);
-    await vscode.workspace.fs.writeFile(
-      vscode.Uri.joinPath(folder, "last-graph.json"),
-      Buffer.from(JSON.stringify(graph), "utf8")
-    );
+    const pending = vscode.Uri.joinPath(folder, `last-graph.${randomUUID()}.pending.json`);
+    try {
+      await vscode.workspace.fs.createDirectory(folder);
+      await vscode.workspace.fs.writeFile(pending, Buffer.from(JSON.stringify(graph), "utf8"));
+      const destination = vscode.Uri.joinPath(folder, "last-graph.json");
+      if (folder.scheme === "file") {
+        // The generic FileService overwrite path can unlink the destination
+        // first. A same-directory native rename replaces it without that gap.
+        await rename(pending.fsPath, destination.fsPath);
+      } else {
+        await vscode.workspace.fs.rename(pending, destination, { overwrite: true });
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.output.error(`Graph generated but cache could not be saved: ${message}`);
+      void vscode.window.showWarningMessage("MATLAB Viz generated the graph, but could not save its cache. See the MATLAB Viz log.");
+    }
   }
 
   private async restoreGraph(): Promise<void> {
     const folder = this.context.storageUri ?? this.context.globalStorageUri;
     try {
-      const raw = await vscode.workspace.fs.readFile(vscode.Uri.joinPath(folder, "last-graph.json"));
-      this.graph = JSON.parse(Buffer.from(raw).toString("utf8")) as DependencyGraph;
+      const uri = vscode.Uri.joinPath(folder, "last-graph.json");
+      let raw: Uint8Array | undefined;
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try { raw = await vscode.workspace.fs.readFile(uri); break; } catch (error) {
+          const code = (error as { code?: string })?.code;
+          if (attempt === 2 || (code !== "FileNotFound" && code !== "ENOENT")) throw error;
+          await new Promise((resolve) => setTimeout(resolve, 20 * (attempt + 1)));
+        }
+      }
+      if (!raw) return;
+      this.graph = validateGraph(JSON.parse(Buffer.from(raw).toString("utf8")));
       this.lastRoot = this.graph.metadata.root;
+      const target = readAnalysisTarget(this.graph);
+      if (target?.type === "call-hierarchy") {
+        const seed = target.seed;
+        const range = (value: typeof seed.range): vscode.Range => new vscode.Range(value.start.line, value.start.character, value.end.line, value.end.character);
+        this.lastSymbolAction = target.direction;
+        this.lastCallSeed = { name: seed.name, kind: seed.kind as vscode.SymbolKind, uri: vscode.Uri.file(seed.path),
+          range: range(seed.range), selectionRange: range(seed.selectionRange), containerName: seed.containerName };
+      } else if (target?.type === "references") {
+        this.lastSymbolAction = "references";
+        this.lastReferenceAnchor = { uri: vscode.Uri.file(target.anchor.path),
+          position: new vscode.Position(target.anchor.position.line, target.anchor.position.character) };
+      }
+      this.panel.setGraph(this.graph);
       this.sidebar.setGraph(this.graph);
-      this.status.text = `$(type-hierarchy) ${this.graph.nodes.length} files · ${this.graph.edges.length} edges`;
-    } catch {
-      // A cache is optional on first activation.
+      const type = this.graph.metadata.graphType ?? "files";
+      this.status.text = `$(type-hierarchy) ${this.graph.nodes.length} ${type === "files" ? "files" : "symbols"} · ${this.graph.edges.length} ${type === "references" ? "references" : type === "call-hierarchy" ? "calls" : "dependencies"}`;
+      this.output.appendLine(`[MATLAB Viz] Restored cached ${type} graph: ${this.graph.nodes.length} nodes, ${this.graph.edges.length} edges; Refresh target: ${target?.type ?? "unavailable"}.`);
+    } catch (error) {
+      const code = (error as { code?: string })?.code;
+      if (code !== "FileNotFound" && code !== "ENOENT") {
+        this.output.appendLine(`[MATLAB Viz] Cached graph could not be restored: ${error instanceof Error ? error.message : String(error)}`);
+      }
     }
   }
 }
 
-export function activate(context: vscode.ExtensionContext): void {
-  new MatlabVizController(context);
+export async function activate(context: vscode.ExtensionContext): Promise<void> {
+  const controller = new MatlabVizController(context);
+  await controller.ready;
 }
 
 export function deactivate(): void {}

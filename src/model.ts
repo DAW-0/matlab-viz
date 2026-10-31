@@ -39,6 +39,30 @@ export interface AnalysisProblem {
   severity: "error" | "warning" | "information";
 }
 
+export interface SourcePosition {
+  line: number;
+  character: number;
+}
+
+export interface SourceRange {
+  start: SourcePosition;
+  end: SourcePosition;
+}
+
+export interface StoredSymbol {
+  name: string;
+  kind: number;
+  path: string;
+  range: SourceRange;
+  selectionRange: SourceRange;
+  containerName?: string;
+}
+
+export type StoredAnalysisTarget =
+  | { version: 1; type: "files" }
+  | { version: 1; type: "call-hierarchy"; direction: "both" | "incoming" | "outgoing"; seed: StoredSymbol }
+  | { version: 1; type: "references"; anchor: { path: string; position: SourcePosition } };
+
 export interface GraphMetadata {
   schemaVersion: number;
   generatedAt: string;
@@ -47,6 +71,7 @@ export interface GraphMetadata {
   graphType?: "files" | "call-hierarchy" | "references";
   rootSymbol?: string;
   analysisDepth?: number;
+  analysisTarget?: StoredAnalysisTarget;
   matlabVersion: string;
   durationSeconds: number;
   projectName?: string;
@@ -86,6 +111,12 @@ export function validateGraph(value: unknown): DependencyGraph {
   const graph = value as Partial<DependencyGraph>;
   if (!graph.metadata || typeof graph.metadata !== "object" || Array.isArray(graph.metadata)) {
     throw new Error("MATLAB graph document is missing valid metadata.");
+  }
+  if (typeof graph.metadata.root !== "string" || !graph.metadata.root
+    || !["folder", "project", "language-service"].includes(graph.metadata.mode)
+    || !Number.isFinite(graph.metadata.durationSeconds) || graph.metadata.durationSeconds < 0
+    || (graph.metadata.graphType !== undefined && !["files", "call-hierarchy", "references"].includes(graph.metadata.graphType))) {
+    throw new Error("MATLAB graph document contains invalid root, mode, graph type, or duration metadata.");
   }
   // Accept legacy scalar-struct collections as well as the current array format.
   graph.nodes = graphCollection<GraphNode>(graph.nodes, "nodes", ["id", "label", "path"]);

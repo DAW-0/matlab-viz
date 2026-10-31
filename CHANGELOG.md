@@ -4,6 +4,23 @@ All notable changes to MATLAB Viz will be documented here.
 
 ## [Unreleased]
 
+## [0.3.6]
+
+### Fixed
+
+- Graph commands wait for the saved graph to load, preventing the first Show or Refresh command from racing cache restoration.
+- The editor can restore its existing graph webview after Reload Window or a restart, including detached-window placement, filters, selection/details, node positions, layout, and custom viewport.
+- Cached function graphs retain their original function, caller/callee direction, and analysis depth; reference graphs retain their original file/cursor anchor for Refresh.
+- Older call graphs without a saved direction remain viewable but request one fresh function analysis before Refresh, rather than silently starting a repository scan.
+- Showing or visually exporting an unchanged graph no longer replaces its data and resets its selection/filter state.
+- Local cache writes replace the saved graph atomically; a failed save keeps the previous disk cache and reports a nonfatal warning.
+
+### Added
+
+- Portable, validated Refresh context in graph metadata.
+- Controller, panel-lifecycle, and webview-state regression tests.
+- Isolated real-editor tests for full restarts, Reload Window, detached windows, and a deliberately hung language provider with timeout/recovery checks.
+
 ## [0.3.5]
 
 ### Fixed
