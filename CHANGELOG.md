@@ -4,6 +4,14 @@ All notable changes to MATLAB Viz will be documented here.
 
 ## [Unreleased]
 
+## [0.3.13]
+
+### Fixed
+
+- Individual group expansion no longer reruns the entire graph layout: disconnected members form a compact block near their summary and are brought into view, while unrelated nodes keep their positions. Local placement avoids occupied rectangles without a Force pass.
+- Collapse restores the summary anchor instead of spreading the overview. Repeated Collapse All/Expand All calls with no expansion-state change preserve exact positions, viewport, and node DOM; repeated disconnected Force-group clicks no longer cause cumulative drift.
+- Member inspection shares the same local expansion path. Added crowded-placement, all-layout isolated expansion, repeated bulk/cycle and real-editor reproduction regressions; updated the grouping guide to describe local focus and layout behavior.
+
 ## [0.3.12]
 
 ### Fixed

@@ -121,6 +121,68 @@ function groupedFixture() {
   return value;
 }
 
+test("repeated Collapse all and Expand all are exact no-ops even for disconnected Force groups", () => {
+  const view = webview(), value = groupedFixture(); value.edges = [];
+  view.load(value); view.get("grouping").value = "folder"; view.get("grouping").trigger("change");
+  view.get("layout").value = "force"; view.get("layout").trigger("change"); view.flush();
+  for (const action of ["collapse", "expand"]) {
+    view.get(`${action}-groups`).trigger("click"); view.flush();
+    const expected = view.state(), elements = view.nodes();
+    for (let i = 0; i < 20; i++) { view.get(`${action}-groups`).trigger("click"); view.flush(); }
+    assert.deepEqual(view.state(), expected, `${action} reran layout or changed the viewport`);
+    assert.deepEqual(view.nodes(), elements, `${action} rebuilt unchanged nodes`);
+  }
+});
+
+test("isolated expansion keeps unrelated nodes fixed and focuses a compact visible member block in every layout", () => {
+  for (const layout of ["force", "grid", "hierarchical", "circle"]) {
+    const view = webview(), value = groupedFixture(); value.edges = [];
+    view.load(value); view.get("grouping").value = "folder"; view.get("grouping").trigger("change");
+    view.get("layout").value = layout; view.get("layout").trigger("change"); view.flush();
+    const before = new Map<string, any>(view.state().positions), target = view.nodes().find((node) => node.textContent.includes("src"))!;
+    const id = target.attributes["data-node-id"]!, anchor = before.get(id);
+    target.trigger("dblclick"); view.flush();
+    const after = new Map<string, any>(view.state().positions), transform = view.state().transform;
+    for (const [other, point] of before) if (other !== id) assert.deepEqual(after.get(other), point, `${layout}: unrelated node moved`);
+    const a = after.get("a"), b = after.get("b");
+    assert.ok(Math.hypot(a.x - b.x, a.y - b.y) < 1000, `${layout}: disconnected members scattered`);
+    assert.ok(Math.hypot((a.x + b.x) / 2 - anchor.x, (a.y + b.y) / 2 - anchor.y) < 1000, `${layout}: expansion teleported`);
+    for (const member of view.nodes().filter((node) => ["a", "b"].includes(node.attributes["data-node-id"]!))) {
+      const point = after.get(member.attributes["data-node-id"]!), rect = member.children[0]!;
+      const x = point.x * transform.k + transform.x, y = point.y * transform.k + transform.y;
+      const width = Number(rect.attributes.width) * transform.k, height = Number(rect.attributes.height) * transform.k;
+      assert.ok(x - width / 2 >= 0 && x + width / 2 <= view.get("graph").clientWidth, `${layout}: member outside horizontal viewport`);
+      assert.ok(y - height / 2 >= 0 && y + height / 2 <= view.get("graph").clientHeight, `${layout}: member outside vertical viewport`);
+    }
+    assert.equal(view.state().viewportCustomized, true);
+  }
+});
+
+test("twenty isolated expand/collapse cycles preserve summary anchors without cumulative drift", () => {
+  const view = webview(), value = groupedFixture(); value.edges = [];
+  view.load(value); view.get("grouping").value = "folder"; view.get("grouping").trigger("change"); view.flush();
+  const before = new Map<string, any>(view.state().positions), target = view.nodes().find((node) => node.textContent.includes("src"))!.attributes["data-node-id"]!;
+  for (let i = 0; i < 20; i++) {
+    view.nodes().find((node) => node.attributes["data-node-id"] === target)!.trigger("dblclick"); view.flush();
+    view.get("collapse-groups").trigger("click"); view.flush();
+    const after = new Map<string, any>(view.state().positions);
+    for (const [id, point] of before) assert.deepEqual(after.get(id), point, `cycle ${i}: summary drift`);
+  }
+});
+
+test("individual collapse and member inspection preserve unrelated manually positioned groups", () => {
+  const view = webview(); view.load(groupedFixture());
+  view.get("grouping").value = "folder"; view.get("grouping").trigger("change"); view.flush();
+  const group = view.nodes().find((node) => node.textContent.includes("src"))!, id = group.attributes["data-node-id"]!;
+  const before = new Map<string, any>(view.state().positions);
+  group.trigger("click"); view.get("details").children.find((node) => node.textContent === "Inspect: src/a.m")!.trigger("click"); view.flush();
+  assert.equal(view.state().selectedId, "a");
+  view.get("groups").trigger("click"); view.get("details").children.find((node) => node.textContent.startsWith("Collapse: src"))!.trigger("click"); view.flush();
+  const after = new Map<string, any>(view.state().positions);
+  for (const [other, point] of before) assert.deepEqual(after.get(other), point, `inspection/collapse moved ${other}`);
+  assert.ok(view.nodes().some((node) => node.attributes["data-node-id"] === id));
+});
+
 test("group controls collapse/expand individually, inspect original nodes, and preserve ungrouped positions", () => {
   const view = webview(); view.load(groupedFixture());
   const ungrouped = view.state().positions;

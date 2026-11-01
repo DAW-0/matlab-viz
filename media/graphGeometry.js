@@ -104,6 +104,45 @@
     }
   }
 
+  // Expand a group as one compact block near its previous summary, without
+  // rerunning Force or moving any unrelated nodes. Search a bounded number of
+  // nearby x slots; merged forbidden y intervals give a free slot at each x.
+  // Unlike iterative repulsion this terminates deterministically, including
+  // disconnected members, mixed label sizes, and a crowded neighborhood.
+  function placeCluster(nodes, anchor, fixed, positions, sizes) {
+    if (!nodes.length) return;
+    const local = new Map(); grid(nodes, local, sizes);
+    const box = bounds({ nodes, edges: [] }, local, sizes, 0);
+    const obstacles = fixed.map((node) => ({ point: positions.get(node.id), size: sizes.get(node.id) }))
+      .filter((item) => item.point && item.size);
+    const xs = [anchor.x];
+    for (const { point, size } of obstacles) xs.push(point.x - (size.width + box.width) / 2 - 24, point.x + (size.width + box.width) / 2 + 24);
+    const candidates = [...new Set(xs)].sort((a, b) => Math.abs(a - anchor.x) - Math.abs(b - anchor.x)).slice(0, 17);
+    let best;
+    for (const x of candidates) {
+      const intervals = obstacles.filter(({ point, size }) => Math.abs(point.x - x) < (size.width + box.width) / 2 + 23.99)
+        .map(({ point, size }) => [point.y - (size.height + box.height) / 2 - 24, point.y + (size.height + box.height) / 2 + 24])
+        .sort((a, b) => a[0] - b[0]);
+      const merged = [];
+      for (const interval of intervals) {
+        const last = merged[merged.length - 1];
+        if (last && interval[0] <= last[1]) last[1] = Math.max(last[1], interval[1]);
+        else merged.push([...interval]);
+      }
+      let y = anchor.y;
+      for (const [low, high] of merged) if (y > low && y < high) { y = anchor.y - low <= high - anchor.y ? low : high; break; }
+      const distance = (x - anchor.x) ** 2 + (y - anchor.y) ** 2;
+      if (!best || distance < best.distance) best = { x, y, distance };
+      if (distance === 0) break;
+    }
+    const center = { x: box.minX + box.width / 2, y: box.minY + box.height / 2 };
+    if (nodes.length === 1) { positions.set(nodes[0].id, { x: best.x, y: best.y }); return; }
+    for (const node of nodes) {
+      const point = local.get(node.id);
+      positions.set(node.id, { x: point.x + best.x - center.x, y: point.y + best.y - center.y });
+    }
+  }
+
   function boundary(point, size, toward, gap = 0) {
     const dx = toward.x - point.x, dy = toward.y - point.y;
     if (!dx && !dy) return { ...point };
@@ -204,5 +243,5 @@
     return { width: w, height: h };
   }
 
-  return { labelBox, grid, circle, hierarchical, separate, boundary, edgeGeometry, linkCountPoint, bounds, fit, svgDocument, rasterSize };
+  return { labelBox, grid, circle, hierarchical, separate, placeCluster, boundary, edgeGeometry, linkCountPoint, bounds, fit, svgDocument, rasterSize };
 });

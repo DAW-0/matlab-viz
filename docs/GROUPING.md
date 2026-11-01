@@ -99,10 +99,31 @@ existing rule. Search and trace do not add dependencies missing from analysis.
 
 ## Layout, persistence and exports
 
-All four layouts work on displayed summary/original nodes. Re-expanding or
-collapsing applies the current layout and Fit so new rectangles do not overlap
-automatically. Manual drags can still create overlap; choosing a layout again
-restores spacing. Grouping changes Fit the view. Positions are kept separately
+All four layouts work on displayed summary/original nodes. Starting in 0.3.13,
+individual expansion **does not rerun the global layout**: members are packed
+as a compact grid block near the summary, avoiding stationary unrelated nodes.
+This also applies to disconnected groups, whose members have no arrows to help
+locate them. The viewport focuses the revealed block (including its internal
+links) so every member is visible. In crowded neighborhoods the nearest tested
+free slot can be beside the old summary rather than exactly centered on it.
+
+Collapse restores the summary's last anchor, using a nearby free slot only if
+that position is now occupied. It preserves zoom/pan when the summary is visible;
+otherwise it pans to keep the summary visible without zooming further in. Older
+saved views with no hidden summary anchor fall back to the members' center.
+Bulk Expand All/Collapse All update local placements and Fit the resulting view
+only when their expansion state actually changes. Repeating either action is a
+true no-op: no Force iterations, drift, Fit, or node DOM replacement.
+
+Updating from an older build does not erase saved/manual positions. If the old
+view has already spread out, choose a layout once to tidy it; subsequent group
+actions use the stable behavior. No MATLAB reanalysis is needed for this repair.
+
+Choose a layout explicitly to rearrange all visible nodes. Local expansion uses
+compact placement even when the selected global layout is Force/Circle/etc.; it
+does not reapply that global algorithm on each group click. Manual drags can
+still create overlap; choosing a layout again restores spacing. Changing grouping
+modes Fits the view. Positions are kept separately
 for No Grouping, Folder, and Package modes, while expansion resets to collapsed
 when switching modes. Zoom is not independently remembered for each mode.
 
@@ -133,6 +154,9 @@ The standalone MATLAB renderer is unchanged and does not offer grouping.
 Groups are summary nodes, not nested compound containers. There is no parent
 folder depth selector, manual group editing, block/subsystem grouping, or runtime
 dataflow inference. Node positions are retained per grouping mode, but manually
-dragged groups do not carry their hidden members as a rigid block. Dense graphs
+dragged groups do not carry their hidden members as a rigid block. Expanding
+repacks members near the current summary; manual member arrangements are retained
+while expanded (including restart) but are not replayed after collapse/re-expansion.
+Dense graphs
 can still have crossing arrows/arrow labels; grouping is not an edge-routing
 engine. Full graph data remains available via No Grouping and data exports.

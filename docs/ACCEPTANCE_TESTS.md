@@ -171,6 +171,24 @@ The [grouping guide](GROUPING.md) documents flat leaf/package membership,
 count semantics, trace seeds, export scope, persistence and current limits.
 No new repository-wide MATLAB analysis or WEST model loading was required.
 
+## Ninth batch: stable local group transitions (0.3.13)
+
+User testing exposed two related gaps: expanding isolated groups relocated their
+members during a global relayout, and repeated Collapse All clicks resumed Force
+iterations, progressively spreading groups. Expansion now places only newly
+visible members as a compact collision-avoiding block near the summary and
+focuses that block. Unrelated positions remain fixed. Collapse restores summary
+anchors, and unchanged bulk expansion sets are true no-ops (including DOM and
+viewport), so cycles and repeated clicks do not accumulate displacement.
+
+Six added deterministic tests cover crowded/free placement, all four layouts,
+20 repeated bulk clicks, 20 expand/collapse cycles, original-member inspection
+and stationary unrelated groups. The native grouping phase now reproduces
+disconnected groups in all four layouts and asserts exact positions, node DOM,
+viewport and pixel visibility. It also reruns the 515-file snapshot, five export
+formats, restart and actual MATLAB Refresh/error checks. See
+[0.3.13 validation](VALIDATION_0.3.13.md) and the updated [grouping guide](GROUPING.md).
+
 ## Host checks after the first repair batch
 
 Automated tests cover the data and controller logic. The isolated real-editor

@@ -7,6 +7,34 @@ import * as vm from "node:vm";
 const moduleAdapter = { exports: {} as any };
 vm.runInNewContext(readFileSync(path.resolve(__dirname, "../../media/graphGeometry.js"), "utf8"), { module: moduleAdapter });
 const geometry = moduleAdapter.exports;
+
+test("anchored cluster placement keeps fixed rectangles unchanged and deterministically avoids crowded obstacles", () => {
+  const nodes = ["a", "b", "c", "d"].map((id) => ({ id }));
+  const fixed = Array.from({ length: 200 }, (_, i) => ({ id: `fixed${i}` }));
+  const sizes = new Map([...nodes, ...fixed].map((node, i) => [node.id, geometry.labelBox("long label ".repeat(1 + i % 4))]));
+  const positions = new Map<string, any>(); geometry.grid(fixed, positions, sizes);
+  const snapshot = JSON.stringify([...positions]), anchor = { ...positions.get("fixed50") };
+  geometry.placeCluster(nodes, anchor, fixed, positions, sizes);
+  assert.equal(JSON.stringify(fixed.map((node) => [node.id, positions.get(node.id)])), snapshot);
+  for (const a of nodes) for (const b of [...nodes, ...fixed]) {
+    if (a.id === b.id) continue;
+    const pa = positions.get(a.id), pb = positions.get(b.id), sa = sizes.get(a.id), sb = sizes.get(b.id);
+    assert.ok(Math.abs(pa.x - pb.x) >= (sa.width + sb.width) / 2 || Math.abs(pa.y - pb.y) >= (sa.height + sb.height) / 2, `${a.id} overlaps ${b.id}`);
+  }
+  const result = JSON.stringify(nodes.map((node) => positions.get(node.id)));
+  geometry.placeCluster(nodes, anchor, fixed, positions, sizes);
+  assert.equal(JSON.stringify(nodes.map((node) => positions.get(node.id))), result);
+});
+
+test("free anchored clusters stay centered at the summary rather than depending on global layout/index", () => {
+  const nodes = ["a", "b", "c"].map((id) => ({ id })), positions = new Map();
+  const sizes = new Map(nodes.map((node) => [node.id, geometry.labelBox(node.id)]));
+  geometry.placeCluster(nodes, { x: -1200, y: 950 }, [], positions, sizes);
+  const box = geometry.bounds({ nodes, edges: [] }, positions, sizes, 0);
+  assert.equal(box.minX + box.width / 2, -1200); assert.equal(box.minY + box.height / 2, 950);
+  geometry.placeCluster([], { x: 0, y: 0 }, [], positions, sizes);
+  assert.equal(positions.size, 3);
+});
 const fixture = (count: number) => {
   const nodes = Array.from({ length: count }, (_, index) => ({ id: String(index),
     label: `function_${index}`, relativePath: `${"long-directory/".repeat(index % 6)}function_${index}.m`, path: `/fixture/${index}.m` }));

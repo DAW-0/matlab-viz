@@ -2,7 +2,7 @@
 
 MATLAB Viz is a MATLAB-first dependency explorer for VS Code and VSCodium. It runs MATLAB's documented dependency-analysis APIs locally, converts the results into a portable graph model, and presents that model as an interactive dependency and impact graph.
 
-> **Development status:** `0.3.12` is a working development build. MATLAB Project and folder backends are exercised by automated MATLAB tests and repository acceptance tests. Function call-hierarchy and symbol-reference graphs use the installed MATLAB language service and a conservative MATLAB syntax fallback. See the [acceptance findings](docs/ACCEPTANCE_TESTS.md) for known limitations and pending repairs.
+> **Development status:** `0.3.13` is a working development build. MATLAB Project and folder backends are exercised by automated MATLAB tests and repository acceptance tests. Function call-hierarchy and symbol-reference graphs use the installed MATLAB language service and a conservative MATLAB syntax fallback. See the [acceptance findings](docs/ACCEPTANCE_TESTS.md) for known limitations and pending repairs.
 
 ## Why MATLAB Viz?
 
@@ -63,7 +63,7 @@ To create an installable package:
 
 ```powershell
 npm run package
-codium --install-extension matlab-viz-0.3.12.vsix
+codium --install-extension matlab-viz-0.3.13.vsix
 ```
 
 ## Grouping large graphs
@@ -73,6 +73,8 @@ collapsed and show how many original files/symbols they contain. Click a group
 for its members and internal-link count; double-click it (or focus it and press
 Enter/Space) to expand. **Groups** lists individual expand/collapse controls;
 **Collapse all**/**Expand all** give an overview or return to individual nodes.
+Individual expansion keeps members together near the summary and brings them
+into view without moving unrelated nodes. Repeated bulk clicks are no-ops.
 
 Numbers beside grouped arrows count original directed graph links, not source
 occurrences. Tracing follows the original file/symbol edges, never shortcuts

@@ -338,8 +338,68 @@
 
   function toggleGroup(id) {
     if (!groupIndex.groups.has(id)) return;
-    if (expandedGroups.has(id)) expandedGroups.delete(id); else expandedGroups.add(id);
-    pointerNodeId = undefined; hideTooltip(); render(true); fit(); restoreDetails();
+    const next = new Set(expandedGroups), expanding = !next.has(id);
+    if (expanding) next.add(id); else next.delete(id);
+    setExpandedGroups(next);
+    // An isolated cluster has no arrows to lead the eye to its members. Focus
+    // the revealed block, not the entire repository; other world positions stay
+    // untouched. Collapse restores its summary anchor and only pans if needed
+    // to keep that summary visible, without zooming further in.
+    focusGroup(id, !expanding);
+  }
+
+  function centerOf(nodes, fallback = { x: 0, y: 0 }) {
+    const known = nodes.filter((node) => positions.has(node.id));
+    if (!known.length) return { ...fallback };
+    known.forEach(nodeSize);
+    const box = geometry.bounds({ nodes: known, edges: [] }, positions, sizes, 0);
+    return { x: box.minX + box.width / 2, y: box.minY + box.height / 2 };
+  }
+
+  function setExpandedGroups(next) {
+    // Repeated bulk actions must be true no-ops: no Force iterations, Fit,
+    // viewport resets or DOM replacement when the expansion set is unchanged.
+    if (next.size === expandedGroups.size && [...next].every((id) => expandedGroups.has(id))) return false;
+    const before = renderedData, oldIds = new Set(before.nodes.map((node) => node.id));
+    expandedGroups = next;
+    const after = currentGraph(); after.nodes.forEach(nodeSize);
+    const fixed = after.nodes.filter((node) => oldIds.has(node.id) && positions.has(node.id));
+    // Retain each summary's last position so expand/collapse cycles cannot
+    // spread the overview over time. Older saved views without hidden anchors
+    // fall back to the members' current center.
+    for (const node of after.nodes.filter((node) => node.group && !oldIds.has(node.id))) {
+      const members = before.nodes.filter((member) => groupIndex.membership.get(member.id) === node.id);
+      geometry.placeCluster([node], positions.get(node.id) || centerOf(members), fixed, positions, sizes);
+      fixed.push(node);
+    }
+    for (const id of next) {
+      const members = after.nodes.filter((node) => !oldIds.has(node.id) && groupIndex.membership.get(node.id) === id);
+      if (!members.length) continue;
+      geometry.placeCluster(members, { ...(positions.get(id) || centerOf(members)) }, fixed, positions, sizes);
+      fixed.push(...members);
+    }
+    pointerNodeId = undefined; hideTooltip(); render(); restoreDetails();
+    return true;
+  }
+
+  function focusGroup(id, onlyIfOutside = false) {
+    const data = currentGraph(), nodes = data.nodes.filter((node) => node.id === id || groupIndex.membership.get(node.id) === id);
+    if (!nodes.length) return;
+    const ids = new Set(nodes.map((node) => node.id));
+    const edges = data.edges.filter((edge) => ids.has(edge.source) && ids.has(edge.target));
+    const rect = svg.getBoundingClientRect();
+    const box = geometry.bounds({ nodes, edges }, positions, sizes);
+    if (onlyIfOutside && box.minX * transform.k + transform.x >= 0 && box.minY * transform.k + transform.y >= 0
+      && (box.minX + box.width) * transform.k + transform.x <= rect.width
+      && (box.minY + box.height) * transform.k + transform.y <= rect.height) return;
+    const focused = geometry.fit(box, rect.width, rect.height);
+    if (onlyIfOutside) {
+      focused.k = Math.min(focused.k, transform.k);
+      focused.x = rect.width / 2 - (box.minX + box.width / 2) * focused.k;
+      focused.y = rect.height / 2 - (box.minY + box.height / 2) * focused.k;
+    }
+    transform = focused;
+    viewportCustomized = true; updateTransform();
   }
 
   function showGroups() {
@@ -369,8 +429,9 @@
     for (const node of members) {
       const inspect = document.createElement("button"); inspect.textContent = `Inspect: ${node.relativePath || node.label}`;
       inspect.addEventListener("click", () => {
-        expandedGroups.add(group.id); selectedId = node.id; pointerNodeId = undefined;
-        render(true); fit(); showNode(node);
+        selectedId = node.id;
+        if (!setExpandedGroups(new Set([...expandedGroups, group.id]))) render();
+        pointerNodeId = undefined; focusGroup(group.id); showNode(node);
       }); details.appendChild(inspect);
     }
     saveStateSoon();
@@ -785,8 +846,7 @@
   });
   document.getElementById("groups").addEventListener("click", showGroups);
   for (const action of ["collapse", "expand"]) document.getElementById(`${action}-groups`).addEventListener("click", () => {
-    expandedGroups = action === "expand" ? new Set(groupIndex.groups.keys()) : new Set();
-    pointerNodeId = undefined; render(true); fit(); restoreDetails();
+    if (setExpandedGroups(action === "expand" ? new Set(groupIndex.groups.keys()) : new Set())) fit();
   });
   direction.addEventListener("change", () => { updateDepthControl(); render(true); fit(); });
   for (const control of [depth, external, isolated]) control.addEventListener("change", () => { render(true); fit(); restoreDetails(); });

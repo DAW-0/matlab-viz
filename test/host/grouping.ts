@@ -118,6 +118,38 @@ export async function run(): Promise<void> {
       await change("grouping", "package"); assert.equal(await count(), 3);
       assert.match(await view.evaluate("return document.getElementById('graph').textContent;"), /one.two \(2 files\)/);
       log("Controlled native package view: nested qualified packages, private ownership and non-package folder fallback agree");
+      // Reproduce both reported issues with truly disconnected groups. Keep
+      // references to actual Chromium nodes: repeated bulk clicks must not even
+      // rebuild them, and single expansion must leave unrelated world positions
+      // alone while bringing the complete member block into the visible canvas.
+      const disconnected = JSON.parse(JSON.stringify(original));
+      disconnected.metadata.generatedAt = "isolated-group-reproduction";
+      disconnected.edges = []; disconnected.products = []; disconnected.problems = [];
+      disconnected.nodes = Array.from({ length: 12 }, (_, i) => ({ ...original.nodes[0], id: `isolated-${i}`,
+        label: `file${i}.m`, relativePath: `isolated${Math.floor(i / 3)}/file${i}.m`,
+        path: `${original.metadata.root.replace(/\\/g, "/")}/isolated${Math.floor(i / 3)}/file${i}.m`, external: false, missing: false }));
+      await view.evaluate(`window.postMessage({type:'setGraph',graph:${JSON.stringify(disconnected)},defaultLayout:'grid'},'*');return true;`); await pause();
+      await change("grouping", "folder");
+      for (const layout of ["force", "grid", "hierarchical", "circle"]) {
+        await change("layout", layout);
+        const stable = await view.evaluate(`const capture=()=>JSON.stringify({nodes:[...document.querySelectorAll('g.node')].map(node=>[node.dataset.nodeId,node.getAttribute('transform')]),view:document.querySelector('#graph > g').getAttribute('transform')});
+          window.__isolatedCapture=capture;const before=capture(),nodes=[...document.querySelectorAll('g.node')];
+          for(let i=0;i<20;i++)document.getElementById('collapse-groups').click();return before===capture()&&nodes.every(node=>node.isConnected);`);
+        assert.equal(stable, true, `${layout}: repeated Collapse all drifts/rebuilds`);
+        const before = await view.evaluate("return [...document.querySelectorAll('g.node')].map(node=>({id:node.dataset.nodeId,position:node.getAttribute('transform')}));");
+        await view.evaluate("document.querySelector('g.node').dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true,cancelable:true}));return true;");
+        const expanded = await view.evaluate(`const frame=document.getElementById('graph').getBoundingClientRect(),members=[...document.querySelectorAll('g.node')].filter(node=>/^isolated-[012]$/.test(node.dataset.nodeId));
+          return {members:members.length,visible:members.every(node=>{const r=node.querySelector('rect').getBoundingClientRect();return r.left>=frame.left-1&&r.right<=frame.right+1&&r.top>=frame.top-1&&r.bottom<=frame.bottom+1;}),
+          positions:[...document.querySelectorAll('g.node')].map(node=>({id:node.dataset.nodeId,position:node.getAttribute('transform')}))};`);
+        assert.equal(expanded.members, 3); assert.equal(expanded.visible, true, `${layout}: isolated members are not visible`);
+        for (const other of before.slice(1)) assert.deepEqual(expanded.positions.find((node: any) => node.id === other.id), other, `${layout}: unrelated group moved`);
+        await view.evaluate("document.getElementById('collapse-groups').click();return true;");
+        assert.deepEqual(await view.evaluate("return [...document.querySelectorAll('g.node')].map(node=>({id:node.dataset.nodeId,position:node.getAttribute('transform')}));"), before);
+        await view.evaluate("document.getElementById('expand-groups').click();return true;");
+        assert.equal(await view.evaluate("const before=window.__isolatedCapture(),nodes=[...document.querySelectorAll('g.node')];for(let i=0;i<20;i++)document.getElementById('expand-groups').click();return before===window.__isolatedCapture()&&nodes.every(node=>node.isConnected);"), true);
+        await view.evaluate("document.getElementById('collapse-groups').click();return true;");
+      }
+      log("Disconnected groups in all four layouts: 20 repeated Collapse/Expand All clicks preserve exact positions/viewport/DOM; individual expansion keeps all members visible, unrelated groups fixed, and collapse restores original summary anchors");
       // Return to the cached original, then save a mixed grouped view for the
       // next application launch. The cache itself was never replaced by projection.
       await view.evaluate(`window.postMessage({type:'setGraph',graph:${JSON.stringify(original)},defaultLayout:'grid'},'*');return true;`); await pause();
