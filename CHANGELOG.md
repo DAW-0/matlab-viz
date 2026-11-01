@@ -4,6 +4,19 @@ All notable changes to MATLAB Viz will be documented here.
 
 ## [Unreleased]
 
+## [0.3.9]
+
+### Added
+
+- Resizable right-hand details panel with a focusable, accessible divider, captured pointer dragging, keyboard fine/coarse steps, minimum/maximum sizing, and double-click/Enter reset.
+- Per-view width persistence across Refresh, new analysis results, Reload Window, and editor restart. Narrow windows clamp only the displayed size and retain the preferred width.
+- Canvas ResizeObserver handling: fitted graphs refit after panel/layout changes, while custom pan/zoom, selection, trace, node positions, and rendered node identity remain unchanged.
+- Commented sizing, persistence, and gesture logic; deterministic and native-editor interaction/restoration regressions.
+
+### Fixed
+
+- Long headings and edge details wrap within the panel instead of forcing horizontal overflow.
+
 ## [0.3.8]
 
 ### Fixed

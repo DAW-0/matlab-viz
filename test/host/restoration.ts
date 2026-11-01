@@ -82,6 +82,8 @@ export async function run(): Promise<void> {
       log(`Detached graph page: ${detached.pageUrl}`);
       assert.ok(detached.pageUrl === "about:blank" || /auxiliary/i.test(detached.pageUrl), "Graph did not move into an auxiliary window");
       await detached.evaluate(`
+        const divider=document.getElementById('details-resizer');
+        for(let i=0;i<3;i++)divider.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowLeft',shiftKey:true,bubbles:true,cancelable:true}));
         const node=[...document.querySelectorAll('#graph g.node')].find(node=>node.textContent.includes('middle.m#middle:'));
         if(!node)throw new Error('Middle node absent');node.dispatchEvent(new MouseEvent('click',{bubbles:true}));
         for(const [id,value] of [['direction','dependencies'],['layout','grid']]){const element=document.getElementById(id);element.value=value;element.dispatchEvent(new Event('change'));}
@@ -92,6 +94,7 @@ export async function run(): Promise<void> {
         return true;`);
       await new Promise((resolve) => setTimeout(resolve, 300));
       const snapshot = await detached.evaluate(snapshotBody);
+      assert.equal(snapshot.detailsWidth, "430px");
       assert.equal(snapshot.labels.length, 2);
       await fs.writeFile(path.join(artifacts, "expected-call-view.json"), JSON.stringify({ snapshot, pageUrl: detached.pageUrl }, null, 2));
       log("Prepared outgoing graph, depth 2, filtered selection, grid layout, search, and custom zoom in auxiliary window");
@@ -114,6 +117,7 @@ export async function run(): Promise<void> {
       assert.equal(refreshed.metadata.analysisTarget?.type, "call-hierarchy");
       if (refreshed.metadata.analysisTarget?.type === "call-hierarchy") assert.equal(refreshed.metadata.analysisTarget.direction, "outgoing");
       assert.equal(refreshed.nodes.length, 3);
+      assert.equal(await view.evaluate("return document.getElementById('graph-main').style.getPropertyValue('--details-width');"), "430px");
       log("Refresh after restart preserved original function, outgoing direction, and depth despite a different editor cursor");
     } else if (stage === "prepare-reference") {
       await select("leaf.m", "value");
@@ -122,9 +126,12 @@ export async function run(): Promise<void> {
       assert.equal(result.nodes.length, 2); assert.equal(result.edges.length, 1);
       await vscode.commands.executeCommand("matlabViz.showGraph");
       const view = await debug.graph();
-      await view.evaluate(`const edge=document.querySelector('#graph line.edge');edge.dispatchEvent(new MouseEvent('click',{bubbles:true}));
+      await view.evaluate(`const divider=document.getElementById('details-resizer');divider.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true,cancelable:true}));
+        divider.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowLeft',shiftKey:true,bubbles:true,cancelable:true}));
+        const edge=document.querySelector('#graph line.edge');edge.dispatchEvent(new MouseEvent('click',{bubbles:true}));
         const svg=document.getElementById('graph'),rect=svg.getBoundingClientRect();svg.dispatchEvent(new WheelEvent('wheel',{clientX:rect.left+rect.width/2,clientY:rect.top+rect.height/2,deltaY:-100,cancelable:true}));return true;`);
       await new Promise((resolve) => setTimeout(resolve, 200));
+      assert.equal(await view.evaluate("return document.getElementById('graph-main').style.getPropertyValue('--details-width');"), "330px");
       await fs.writeFile(path.join(artifacts, "expected-reference-view.json"), JSON.stringify(await view.evaluate(snapshotBody), null, 2));
       log("Prepared a variable reference graph with a selected reference edge");
     } else if (stage === "restore-reference") {

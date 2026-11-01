@@ -18,12 +18,17 @@ body { display: flex; flex-direction: column; color: var(--vscode-foreground); b
 #search { width: min(260px, 25vw); }
 #depth { width: 52px; }
 #summary { height: 25px; padding: 4px 9px; color: var(--vscode-descriptionForeground); border-bottom: 1px solid var(--vscode-panel-border); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-main { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 280px; }
+/* The separator owns its own grid track, so it never covers graph hit targets. */
+main { --details-width: 280px; flex: 1; min-height: 0; min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) 6px var(--details-width); }
+#details-resizer { cursor: col-resize; touch-action: none; user-select: none; background: var(--vscode-panel-border, #555); }
+#details-resizer:hover, #details-resizer:focus-visible, main[data-resizing="true"] #details-resizer { background: var(--vscode-focusBorder, #3b82f6); }
+#details-resizer:focus-visible { outline: 1px solid var(--vscode-focusBorder, #3b82f6); outline-offset: -1px; }
+main[data-resizing="true"], main[data-resizing="true"] * { cursor: col-resize !important; user-select: none; }
 #toolbar, #summary { flex-shrink: 0; }
 #canvas-wrap { min-width: 0; min-height: 0; position: relative; overflow: hidden; }
 #graph { width: 100%; height: 100%; cursor: grab; user-select: none; touch-action: none; }
 #graph:active { cursor: grabbing; }
-#details { overflow: auto; padding: 12px; border-left: 1px solid var(--vscode-panel-border); background: var(--vscode-sideBar-background); }
+#details { min-width: 0; overflow: auto; overflow-wrap: anywhere; padding: 12px; background: var(--vscode-sideBar-background); }
 #details h2 { font-size: 1.05rem; margin: 0 0 10px; }
 #details dl { margin: 0; }
 #details dt { color: var(--vscode-descriptionForeground); margin-top: 9px; }
@@ -46,4 +51,5 @@ main { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1
 .node text { fill: var(--vscode-editor-foreground); font: 12px var(--vscode-font-family); pointer-events: none; }
 #tooltip { position: fixed; pointer-events: none; max-width: 460px; z-index: 10; padding: 6px 8px; background: var(--vscode-editorHoverWidget-background); color: var(--vscode-editorHoverWidget-foreground); border: 1px solid var(--vscode-editorHoverWidget-border); box-shadow: 0 2px 8px #0005; overflow-wrap: anywhere; }
 .empty { fill: var(--vscode-descriptionForeground); font-size: 16px; }
-@media (max-width: 800px) { main { grid-template-columns: 1fr; } #details { display: none; } }
+/* Keep the existing compact view; JS retains the preferred width while hidden. */
+@media (max-width: 800px) { main { grid-template-columns: 1fr; } #details, #details-resizer { display: none; } }

@@ -81,6 +81,17 @@ See [0.3.7 validation](VALIDATION_0.3.7.md) for the real-renderer, mouse, export
 
 See [0.3.8 validation](VALIDATION_0.3.8.md) for evidence and exact test scope.
 
+## Fifth repair batch: 0.3.9
+
+- The details panel has a focusable resize divider, pointer capture, keyboard
+  steps/limits/reset, and wrapped long text. The preferred width is per-view
+  state, independent of the currently analyzed graph.
+- Displayed width is temporarily clamped to preserve graph space; the compact
+  view still hides the panel below its existing breakpoint. Automatic Fit follows
+  canvas size changes without clearing selection/trace or changing node positions.
+- Sizing, persistence, and pointer logic are commented in the implementation.
+  See [0.3.9 validation](VALIDATION_0.3.9.md) for test evidence and limitations.
+
 ## Pending repairs and coverage gaps
 
 - Static reference inference does not fully model nested scopes, imports,
@@ -91,8 +102,8 @@ See [0.3.8 validation](VALIDATION_0.3.8.md) for evidence and exact test scope.
 - Dense graphs still have crossing edges. Manually dragged nodes may overlap;
   choosing a layout again restores automatic spacing. Very large graphs should
   use vector SVG rather than an impractically large raster image.
-- Details need a resizable width; reference headings/counts and analysis-level
-  external controls need clearer wording and placement.
+- Reference headings/counts and analysis-level external controls need clearer
+  wording and placement.
 - Standalone MATLAB-rendered labels can intersect edges or approach boundaries.
 - A retained old graph should be clearly identified after a failed Refresh.
 - Simulink dependency counts differ from the historical snapshot; a fresh

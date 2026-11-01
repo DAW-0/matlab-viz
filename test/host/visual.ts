@@ -30,6 +30,10 @@ export async function run(): Promise<void> {
     await fs.mkdir(cacheFolder, { recursive: true });
     await fs.writeFile(path.join(cacheFolder, "last-graph.json"), JSON.stringify(original));
     await vscode.workspace.getConfiguration("files").update("simpleDialog.enable", true, vscode.ConfigurationTarget.Global);
+    // A fresh editor may open both sidebars, leaving the webview below its
+    // intentional 800px compact breakpoint. Make room before divider tests.
+    await vscode.commands.executeCommand("workbench.action.closeSidebar");
+    await vscode.commands.executeCommand("workbench.action.closeAuxiliaryBar");
     await vscode.commands.executeCommand("matlabViz.showGraph");
     const view = await debug.graph(), workbench = await debug.workbench();
     const geometryCheck = `
@@ -105,6 +109,65 @@ export async function run(): Promise<void> {
     assert.equal(dragResult.connected, true); assert.notEqual(dragResult.transform, dragPoint.before); assert.ok(dragResult.captures >= 2);
     await fs.writeFile(path.join(artifacts, "pointer-events.json"), JSON.stringify(await view.evaluate("return {events:window.__pointerEvents,captures:window.__captureCount};"), null, 2));
     log("Trusted Chromium mouse input: node click works, pan retains selection/direction, and rapid drag keeps the same node DOM/capture");
+    // Exercise the actual grid and pointer capture, not the fake-DOM adapter.
+    // The current view is custom-panned/zoomed: resizing must preserve that
+    // exact transform, trace selection, positions, and every existing node.
+    const dividerBefore = await view.evaluate(`
+      const handle=document.getElementById('details-resizer'),r=handle.getBoundingClientRect();
+      window.__splitterEvents=[];for(const type of ['pointerdown','pointermove','pointerup','pointercancel','gotpointercapture','lostpointercapture'])
+        document.addEventListener(type,event=>window.__splitterEvents.push({type,target:event.target.id||event.target.tagName,x:event.clientX,y:event.clientY,buttons:event.buttons,id:event.pointerId,capture:handle.hasPointerCapture(event.pointerId),active:document.getElementById('graph-main').getAttribute('data-resizing')}),true);
+      window.__splitterNodes=[...document.querySelectorAll('g.node')];
+      return {x:r.x+r.width/2,y:r.y+r.height/2,details:document.getElementById('details').getBoundingClientRect().width,
+        selected:document.querySelector('g.node.selected')?.dataset.nodeId,transform:document.querySelector('#graph > g').getAttribute('transform'),
+        positions:window.__splitterNodes.map(node=>node.getAttribute('transform'))};`);
+    assert.equal(dividerBefore.details, 280, "Divider tests require a non-compact webview");
+    await mouse("mousePressed", dividerBefore.x, dividerBefore.y, true);
+    // A single large move deliberately tests capture outside the narrow handle.
+    await mouse("mouseMoved", dividerBefore.x - 160, dividerBefore.y, true);
+    await mouse("mouseReleased", dividerBefore.x - 160, dividerBefore.y); await delay();
+    const dividerAfter = await view.evaluate(`return {details:document.getElementById('details').getBoundingClientRect().width,
+      selected:document.querySelector('g.node.selected')?.dataset.nodeId,transform:document.querySelector('#graph > g').getAttribute('transform'),
+      positions:[...document.querySelectorAll('g.node')].map(node=>node.getAttribute('transform')),
+      stable:window.__splitterNodes.every(node=>node.isConnected),active:document.activeElement?.id,
+      now:Number(document.getElementById('details-resizer').getAttribute('aria-valuenow'))};`);
+    await fs.writeFile(path.join(artifacts, "splitter-events.json"), JSON.stringify({ before: dividerBefore, after: dividerAfter,
+      events: await view.evaluate("return window.__splitterEvents;") }, null, 2));
+    assert.equal(dividerAfter.details, dividerBefore.details + 160); assert.equal(dividerAfter.now, dividerAfter.details);
+    assert.equal(dividerAfter.active, "details-resizer"); assert.equal(dividerAfter.stable, true);
+    assert.equal(dividerAfter.selected, dividerBefore.selected); assert.equal(dividerAfter.transform, dividerBefore.transform);
+    assert.deepEqual(dividerAfter.positions, dividerBefore.positions);
+    await workbench.request("Input.dispatchKeyEvent", { type: "keyDown", key: "ArrowLeft", code: "ArrowLeft", windowsVirtualKeyCode: 37 });
+    await workbench.request("Input.dispatchKeyEvent", { type: "keyUp", key: "ArrowLeft", code: "ArrowLeft", windowsVirtualKeyCode: 37 }); await delay();
+    assert.equal(await view.evaluate("return Number(document.getElementById('details-resizer').getAttribute('aria-valuenow'));"), dividerAfter.details + 10);
+    const splitterScreenshot = await workbench.request("Page.captureScreenshot", { format: "png" });
+    await fs.writeFile(path.join(artifacts, "resized-details.png"), Buffer.from(splitterScreenshot.data, "base64"));
+    // Test temporary container constraints without editing the editor's settings.
+    // A real ResizeObserver must refit after width changes even without resize.
+    await view.evaluate(`document.getElementById('details-resizer').dispatchEvent(new KeyboardEvent('keydown',{key:'End',cancelable:true}));
+      document.getElementById('graph-main').style.width='900px';window.dispatchEvent(new Event('resize'));return true;`); await delay();
+    assert.equal(await view.evaluate("return document.getElementById('graph').getBoundingClientRect().width;"), 240);
+    await view.evaluate(`document.getElementById('graph-main').style.width='';window.dispatchEvent(new Event('resize'));
+      document.getElementById('details-resizer').dispatchEvent(new MouseEvent('dblclick',{bubbles:true}));document.getElementById('fit').click();return true;`); await delay();
+    assert.equal(await view.evaluate("return document.getElementById('details').getBoundingClientRect().width;"), 280);
+    assert.equal((await view.evaluate(geometryCheck)).clipped, 0);
+    // ResizeObserver must respond to canvas-only changes, not merely our window
+    // listener. Altering height is confined to this isolated test document.
+    await view.evaluate("document.getElementById('canvas-wrap').style.height='280px';return true;"); await delay();
+    assert.equal(await view.evaluate("return document.getElementById('graph').getBoundingClientRect().height;"), 280);
+    assert.equal((await view.evaluate(geometryCheck)).clipped, 0);
+    await view.evaluate("document.getElementById('canvas-wrap').style.height='';return true;"); await delay();
+    // Emulate a genuinely narrow iframe viewport so the real CSS media query is
+    // tested too. Always restore metrics, including after an assertion failure.
+    await view.evaluate("document.getElementById('details-resizer').dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowLeft',shiftKey:true,cancelable:true}));return true;");
+    try {
+      await workbench.request("Emulation.setDeviceMetricsOverride", { width: 700, height: 900, deviceScaleFactor: 1, mobile: false }); await delay(400);
+      const compact = await view.evaluate("return {width:window.innerWidth,details:getComputedStyle(document.getElementById('details')).display,divider:getComputedStyle(document.getElementById('details-resizer')).display};");
+      assert.ok(compact.width <= 800); assert.equal(compact.details, "none"); assert.equal(compact.divider, "none");
+    } finally { await workbench.request("Emulation.clearDeviceMetricsOverride"); await delay(400); }
+    assert.equal(await view.evaluate("return document.getElementById('details').getBoundingClientRect().width;"), 330);
+    await view.evaluate("document.getElementById('details-resizer').dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',cancelable:true}));return true;"); await delay();
+    log("Details divider: trusted rapid drag and keyboard resize preserve trace/custom viewport/DOM; limits, reset, and fitted canvas resize pass");
+    log("Details responsive layout: canvas-only ResizeObserver refits; actual compact CSS hides the divider/panel and restores the preferred width when widened");
     await view.evaluate(`document.getElementById('layout').dispatchEvent(new Event('change'));return true;`);
     const relaid = await view.evaluate(geometryCheck); assert.equal(relaid.overlaps, 0); assert.equal(relaid.clipped, 0);
     const svgFile = await exportVisual("filtered.svg", "svg");

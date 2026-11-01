@@ -29,7 +29,7 @@ npm run package
 The package script type-checks and bundles the extension before invoking `vsce`. Install the resulting VSIX with:
 
 ```powershell
-codium --install-extension .\matlab-viz-0.3.8.vsix
+codium --install-extension .\matlab-viz-0.3.9.vsix
 ```
 
 ## MATLAB-only validation
@@ -273,6 +273,26 @@ It compares selected-folder analysis on a clean MATLAB path, with workspace
 lookup, and with external nodes excluded; it also writes the standalone report
 artifacts. This is checkout-specific validation, not a portable CI assertion.
 All test helpers, profiles, logs, and artifacts are excluded from the VSIX.
+
+## Details-panel resizing tests
+
+The 0.3.9 suite adds seven deterministic webview tests (81 deterministic tests,
+plus the existing opt-in MATLAB runner test). They check rapid dragging without
+node replacement, pointer/cancellation/capture handling, keyboard steps and
+accessible values, bounds, reset, malformed/legacy state, new-result persistence,
+temporary narrow-window clamping, and fitted/custom viewport behavior.
+
+The existing `visual` phase also tests actual divider dragging and keyboard
+input through Chromium, computed grid widths, stable graph DOM/trace/custom
+zoom, and fitted canvas changes. It closes sidebars only in the isolated profile
+to expose the divider above the existing 800px compact breakpoint. The restart
+and Reload Window phases now compare custom details widths in their snapshots,
+including detached call/reference views and Refresh. Use a fresh artifact root
+under `.tools/validation/0.3.9/` with the earlier launcher examples.
+
+No production MATLAB analysis code changes in this batch; its 13-test suite was
+last fully exercised in 0.3.8. Rerun it whenever the MATLAB helpers change.
+See [0.3.9 validation](VALIDATION_0.3.9.md) for the final observed results.
 
 ## Release checklist
 

@@ -328,9 +328,10 @@ export class GraphPanel implements vscode.Disposable {
     <button id="export" title="Export graph">Export</button>
   </header>
   <div id="summary" role="status">No graph loaded</div>
-  <main>
+  <main id="graph-main">
     <section id="canvas-wrap"><svg id="graph" role="img" aria-label="MATLAB dependency graph"></svg></section>
-    <aside id="details"><h2>Selection</h2><p>Select a node or edge.</p></aside>
+    <div id="details-resizer" role="separator" tabindex="0" aria-label="Resize details panel" aria-orientation="vertical" aria-controls="details" title="Drag to resize details. Arrow keys resize; Shift takes larger steps; Home/End set limits; Enter or double-click resets."></div>
+    <aside id="details" aria-label="Selection and analysis details"><h2>Selection</h2><p>Select a node or edge.</p></aside>
   </main>
   <div id="tooltip" hidden></div>
   <script nonce="${token}" src="${geometry}"></script>

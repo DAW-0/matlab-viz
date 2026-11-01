@@ -3,6 +3,8 @@
   const svg = document.getElementById("graph");
   const summary = document.getElementById("summary");
   const details = document.getElementById("details");
+  const main = document.getElementById("graph-main");
+  const detailsResizer = document.getElementById("details-resizer");
   const search = document.getElementById("search");
   const layout = document.getElementById("layout");
   const direction = document.getElementById("direction");
@@ -39,13 +41,128 @@
   let pointerNodeId;
   const initialState = vscode.getState();
 
+  // Width is a view preference, not graph data: retain it across Refresh/new
+  // results, even when the graph key changes. A narrow window only clamps the
+  // displayed width; it must not overwrite a user's wider-window preference.
+  const DEFAULT_DETAILS_WIDTH = 280, MIN_DETAILS_WIDTH = 220, MAX_DETAILS_WIDTH = 960;
+  const MIN_CANVAS_WIDTH = 240, SEPARATOR_WIDTH = 6, COMPACT_WIDTH = 800;
+  let detailsWidth = DEFAULT_DETAILS_WIDTH;
+  let resizingDetails;
+  let swallowDetailsClick = false;
+  let canvasResizeFrame;
+
+  function restoreDetailsWidth(value) {
+    if (value?.version === 1 && Number.isFinite(value.detailsWidth)) {
+      detailsWidth = Math.round(Math.max(MIN_DETAILS_WIDTH, Math.min(MAX_DETAILS_WIDTH, value.detailsWidth)));
+    }
+  }
+
+  function detailsWidthLimit() {
+    return Math.max(MIN_DETAILS_WIDTH, Math.min(MAX_DETAILS_WIDTH, main.clientWidth - MIN_CANVAS_WIDTH - SEPARATOR_WIDTH));
+  }
+
+  function applyDetailsWidth() {
+    const maximum = detailsWidthLimit(), displayed = Math.min(detailsWidth, maximum);
+    main.style.setProperty("--details-width", `${displayed}px`);
+    // Pixel values expose the same bounded range to assistive technology that
+    // pointer and keyboard users see. CSS removes the separator in compact mode.
+    detailsResizer.setAttribute("aria-valuemin", String(MIN_DETAILS_WIDTH));
+    detailsResizer.setAttribute("aria-valuemax", String(maximum));
+    detailsResizer.setAttribute("aria-valuenow", String(displayed));
+    detailsResizer.setAttribute("aria-valuetext", `${displayed} pixels`);
+  }
+
+  function resizeCanvasSoon() {
+    // A divider move changes the canvas without a window resize. Coalesce work
+    // to one animation frame and keep custom pan/zoom unchanged. Fitted views
+    // are refitted, but resizing never rebuilds nodes or changes trace selection.
+    if (canvasResizeFrame !== undefined) return;
+    canvasResizeFrame = requestAnimationFrame(() => {
+      canvasResizeFrame = undefined;
+      if (viewportCustomized) updateTransform(); else fit();
+    });
+  }
+
+  function setDetailsWidth(value) {
+    detailsWidth = Math.round(Math.max(MIN_DETAILS_WIDTH, Math.min(detailsWidthLimit(), value)));
+    applyDetailsWidth(); resizeCanvasSoon(); saveStateSoon();
+  }
+
+  function finishDetailsResize(event) {
+    // Ignore secondary pointers and capture-loss callbacks after release.
+    if (!resizingDetails || resizingDetails.pointerId !== event.pointerId) return;
+    event.stopPropagation?.();
+    resizingDetails = undefined;
+    swallowDetailsClick = event.type !== "pointercancel";
+    main.setAttribute("data-resizing", "false");
+    if (detailsResizer.hasPointerCapture(event.pointerId)) detailsResizer.releasePointerCapture(event.pointerId);
+    saveStateSoon();
+  }
+
+  detailsResizer.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0 || event.isPrimary === false || main.clientWidth <= COMPACT_WIDTH) return;
+    event.stopPropagation();
+    detailsResizer.focus();
+    // Start from the displayed size, not an offscreen preferred width. This
+    // prevents a jump when dragging after a large window has become narrower.
+    resizingDetails = { pointerId: event.pointerId, x: event.clientX, width: Math.min(detailsWidth, detailsWidthLimit()) };
+    main.setAttribute("data-resizing", "true");
+    detailsResizer.setPointerCapture(event.pointerId);
+  });
+  function moveDetailsResize(event) {
+    if (!resizingDetails || resizingDetails.pointerId !== event.pointerId) return;
+    event.stopPropagation();
+    if (event.buttons === 0) { finishDetailsResize(event); return; }
+    // Moving the divider left makes this right-hand panel wider.
+    setDetailsWidth(resizingDetails.width + resizingDetails.x - event.clientX);
+  }
+  detailsResizer.addEventListener("pointermove", moveDetailsResize);
+  detailsResizer.addEventListener("pointerup", finishDetailsResize);
+  detailsResizer.addEventListener("pointercancel", finishDetailsResize);
+  // Native editor tests caught a renderer path where requested handle capture
+  // was not retained, with no lostpointercapture event. Capture-phase document
+  // listeners keep moves/releases working over the canvas in that case and
+  // prevent the same gesture from reaching graph pan/selection handlers.
+  document.addEventListener("pointermove", moveDetailsResize, true);
+  document.addEventListener("pointerup", finishDetailsResize, true);
+  document.addEventListener("pointercancel", finishDetailsResize, true);
+  document.addEventListener("pointerdown", () => { swallowDetailsClick = false; }, true);
+  document.addEventListener("click", (event) => {
+    if (swallowDetailsClick) { swallowDetailsClick = false; event.stopPropagation(); event.preventDefault(); }
+  }, true);
+  window.addEventListener("blur", () => { if (resizingDetails) finishDetailsResize(resizingDetails); });
+  detailsResizer.addEventListener("lostpointercapture", (event) => {
+    if (resizingDetails?.pointerId === event.pointerId && (event.buttons & 1)) {
+      try { detailsResizer.setPointerCapture(event.pointerId); return; } catch { /* Pointer is no longer active. */ }
+    }
+    finishDetailsResize(event);
+  });
+  detailsResizer.addEventListener("keydown", (event) => {
+    if (main.clientWidth <= COMPACT_WIDTH) return;
+    const displayed = Math.min(detailsWidth, detailsWidthLimit()), step = event.shiftKey ? 50 : 10;
+    let next;
+    if (event.key === "ArrowLeft") next = displayed + step;
+    else if (event.key === "ArrowRight") next = displayed - step;
+    else if (event.key === "Home") next = MIN_DETAILS_WIDTH;
+    else if (event.key === "End") next = detailsWidthLimit();
+    else if (event.key === "Enter") next = DEFAULT_DETAILS_WIDTH;
+    else return;
+    event.preventDefault(); event.stopPropagation(); setDetailsWidth(next);
+  });
+  detailsResizer.addEventListener("dblclick", () => setDetailsWidth(DEFAULT_DETAILS_WIDTH));
+  restoreDetailsWidth(initialState); applyDetailsWidth();
+  // Sidebar toggles, toolbar wrapping, and detached-window moves can resize the
+  // canvas without a window event. Observe only the canvas to avoid feedback
+  // from graph drawing; no DOM sizes are changed by the observer callback.
+  if (typeof ResizeObserver !== "undefined") new ResizeObserver(resizeCanvasSoon).observe(document.getElementById("canvas-wrap"));
+
   function saveState() {
     if (!graph) return;
     vscode.setState({
       version: 1, geometryVersion: 1, graphKey,
       controls: { search: search.value, layout: layout.value, direction: direction.value,
         depth: Number(depth.value), external: external.checked, isolated: isolated.checked },
-      selectedId, detailSelection, positions: [...positions], transform: { ...transform }, viewportCustomized
+      selectedId, detailSelection, positions: [...positions], transform: { ...transform }, viewportCustomized, detailsWidth
     });
   }
 
@@ -499,10 +616,16 @@
   });
   problemsButton.addEventListener("click", showProblems);
   document.getElementById("export").addEventListener("click", () => vscode.postMessage({ type: "export" }));
-  window.addEventListener("resize", () => { if (viewportCustomized) updateTransform(); else fit(); });
+  window.addEventListener("resize", () => {
+    if (main.clientWidth <= COMPACT_WIDTH && resizingDetails) finishDetailsResize(resizingDetails);
+    applyDetailsWidth(); resizeCanvasSoon();
+  });
   window.addEventListener("pagehide", saveState);
   window.addEventListener("message", (event) => {
     if (event.data.type === "setGraph") {
+      // Serializer-supplied view state can arrive after the script starts.
+      // Apply its width before layout/Fit; subsequent results keep this width.
+      if (!graph && event.data.viewState) { restoreDetailsWidth(event.data.viewState); applyDetailsWidth(); }
       const incomingKey = JSON.stringify(event.data.graph.metadata);
       const sameGraph = graph && incomingKey === graphKey;
       graph = event.data.graph;

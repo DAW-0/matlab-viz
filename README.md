@@ -2,7 +2,7 @@
 
 MATLAB Viz is a MATLAB-first dependency explorer for VS Code and VSCodium. It runs MATLAB's documented dependency-analysis APIs locally, converts the results into a portable graph model, and presents that model as an interactive dependency and impact graph.
 
-> **Development status:** `0.3.8` is a working development build. MATLAB Project and folder backends are exercised by automated MATLAB tests and repository acceptance tests. Function call-hierarchy and symbol-reference graphs use the installed MATLAB language service and a conservative MATLAB syntax fallback. See the [acceptance findings](docs/ACCEPTANCE_TESTS.md) for known limitations and pending repairs.
+> **Development status:** `0.3.9` is a working development build. MATLAB Project and folder backends are exercised by automated MATLAB tests and repository acceptance tests. Function call-hierarchy and symbol-reference graphs use the installed MATLAB language service and a conservative MATLAB syntax fallback. See the [acceptance findings](docs/ACCEPTANCE_TESTS.md) for known limitations and pending repairs.
 
 ## Why MATLAB Viz?
 
@@ -61,7 +61,7 @@ To create an installable package:
 
 ```powershell
 npm run package
-codium --install-extension matlab-viz-0.3.8.vsix
+codium --install-extension matlab-viz-0.3.9.vsix
 ```
 
 ## Standalone MATLAB API
@@ -152,6 +152,18 @@ graph; use the graph toolbar's **Notices** button to inspect them and open the
 affected source files.
 
 ## Layout, navigation, and visual exports
+
+Drag the divider immediately left of the details panel to resize it. Tab to the
+divider and use Left/Right for 10-pixel steps, or Shift+Left/Right for 50-pixel
+steps. Home/End choose the minimum/maximum; Enter or double-click restores the
+280-pixel default. The range is 220–960 pixels, additionally bounded to leave
+240 pixels for the graph. Width is saved with the open graph view across
+Refresh, new analysis results, Reload Window, and editor restarts. It is not a
+global setting for newly created tabs. Narrower windows temporarily clamp the
+displayed width without erasing the preference; the existing compact view hides
+the panel and divider at 800 pixels or below. Widen the graph editor to show them.
+Resizing keeps the selected trace, node positions, and custom pan/zoom; fitted
+views automatically refit to the available canvas. Long details wrap to fit.
 
 All layouts account for the full wrapped label dimensions. Hierarchical layout
 groups cycles into the same rank; Force uses a hierarchical fallback above 350
