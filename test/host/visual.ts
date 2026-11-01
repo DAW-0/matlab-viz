@@ -58,8 +58,15 @@ export async function run(): Promise<void> {
     };
     const input = async (value: string) => {
       await waitFor(async () => workbench.evaluate(`return [...document.querySelectorAll('.quick-input-widget input')].some(input=>input.getBoundingClientRect().width>0);`));
-      await workbench.evaluate(`const input=[...document.querySelectorAll('.quick-input-widget input')].find(input=>input.getBoundingClientRect().width>0);input.focus();input.value=${JSON.stringify(value)};input.dispatchEvent(new Event('input',{bubbles:true}));return true;`);
-      await delay(200); await enter(); await delay(200);
+      // The simple save dialog can populate its default filename after the
+      // widget becomes visible. Confirm our text survived initialization before
+      // pressing Enter; otherwise a busy desktop saves the default name instead.
+      await waitFor(async () => {
+        await workbench.evaluate(`const input=[...document.querySelectorAll('.quick-input-widget input')].find(input=>input.getBoundingClientRect().width>0);if(!input)return false;input.focus();input.value=${JSON.stringify(value)};input.dispatchEvent(new Event('input',{bubbles:true}));return true;`);
+        await delay(200);
+        return workbench.evaluate(`return [...document.querySelectorAll('.quick-input-widget input')].some(input=>input.getBoundingClientRect().width>0&&input.value===${JSON.stringify(value)});`);
+      });
+      await enter(); await delay(200);
     };
     const exists = async (file: string) => { try { return (await fs.stat(file)).size > 0; } catch { return false; } };
     const exportVisual = async (name: string, format: string, scope = "graph", scale = 2, menu = false) => {

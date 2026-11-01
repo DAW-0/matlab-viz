@@ -4,6 +4,20 @@ All notable changes to MATLAB Viz will be documented here.
 
 ## [Unreleased]
 
+## [0.3.11]
+
+### Fixed
+
+- Folder analysis no longer silently treats Simulink models as dependency-free MATLAB program inputs. It reads saved direct model/subsystem references using `Simulink.MDLInfo` without loading the diagram and labels the resulting edge evidence.
+- Every inspected folder model has an explicit partial-scope warning; unresolved names and unreadable/default metadata descriptors are warned without inventing target paths. Scope warnings survive isolated-node filtering and JSON/MAT/problem-CSV output.
+- Simulink binary navigation uses the editor's registered handler instead of forcing model/dictionary archives into text documents. Data-dictionary and protected-model target node kinds are distinguished.
+- Documentation now states model-analysis boundaries and the release requirements of the configured Project options rather than implying full Simulink folder analysis or R2019a option compatibility.
+
+### Added
+
+- Generated, licensed fixtures covering model references, repeated instances, a linked library, callbacks, dictionaries, block-parameter analysis off/on, a legacy MDL model, a referenced subsystem, external filtering, missing-model recovery, byte preservation, and standalone exports.
+- Native VSCodium Simulink workflow tests and a reproducible native-versus-bridge diagnostic probe. Add-on option passthrough is checked without installing third-party code; full add-on discovery remains unvalidated.
+
 ## [0.3.10]
 
 ### Added

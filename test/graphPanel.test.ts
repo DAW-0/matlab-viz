@@ -30,7 +30,8 @@ function panelHarness(pendingTab = false) {
     return panel;
   };
   const module = loadExtensionModule<{ GraphPanel: new (...args: any[]) => any }>("graphPanel.js", {
-    vscode: { Uri: { joinPath: (value: { fsPath: string }, ...parts: string[]) => uri(path.join(value.fsPath, ...parts)) },
+    "node:fs": { existsSync: () => true },
+    vscode: { Uri: { file: uri, joinPath: (value: { fsPath: string }, ...parts: string[]) => uri(path.join(value.fsPath, ...parts)) },
       ViewColumn: { One: 1 }, commands: { async executeCommand(name: string, ...args: unknown[]) {
         editorCommands.push({ name, args });
         if (name === "workbench.action.focusNextGroup") activeIndex = 1;
@@ -55,6 +56,17 @@ test("cached data does not open a panel until Show is requested", async () => {
   assert.equal(created[0].messages.length, 0, "graph was posted before the webview became ready");
   await created[0].receive({ type: "ready" });
   assert.equal(created[0].messages[0].type, "setGraph");
+});
+
+test("Simulink binary navigation delegates to the editor instead of forcing text or running MATLAB", async () => {
+  const { bridge, graph, created, editorCommands } = panelHarness(); bridge.update(graph);
+  for (const extension of [".slx", ".SLXP", ".sldd"]) {
+    const file = path.join("/fixture", `model${extension}`);
+    await created[0].receive({ type: "openFile", path: file });
+    assert.equal(editorCommands.at(-1)?.name, "vscode.open");
+    assert.equal((editorCommands.at(-1)?.args[0] as { fsPath: string }).fsPath, file);
+  }
+  assert.equal(editorCommands.length, 3);
 });
 
 test("failed-attempt status updates do not replace/reveal the graph and success explicitly clears saved status", async () => {

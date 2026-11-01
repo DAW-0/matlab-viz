@@ -117,6 +117,17 @@ verifyError(testCase, @() analyzeMatlabFileDependencies(fixture, ...
 verifyEqual(testCase, string(path), string(originalPath));
 end
 
+function testUnreadableModelCannotSilentlyLookDependencyFree(testCase)
+fixture = string(tempname); mkdir(fixture);
+cleanup = onCleanup(@() removeFixture(fixture));
+writelines("Not a valid model archive", fullfile(fixture, "invalid.slx"));
+report = analyzeMatlabFileDependencies(fixture, Render=false, Print=false);
+verifyEqual(testCase, height(report.nodes), 1); verifyEmpty(testCase, report.edges);
+verifyTrue(testCase, any(report.problems.Identifier == "MatlabViz:PartialSimulinkFolderAnalysis"));
+verifyTrue(testCase, any(report.problems.Identifier ~= "MatlabViz:PartialSimulinkFolderAnalysis"));
+verifyTrue(testCase, all(report.problems.Severity == "warning"));
+end
+
 function removeFixture(fixture)
 if startsWith(fixture, string(tempdir), IgnoreCase=ispc) && ...
         strlength(fixture) > strlength(string(tempdir)) && isfolder(fixture)

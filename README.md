@@ -2,7 +2,7 @@
 
 MATLAB Viz is a MATLAB-first dependency explorer for VS Code and VSCodium. It runs MATLAB's documented dependency-analysis APIs locally, converts the results into a portable graph model, and presents that model as an interactive dependency and impact graph.
 
-> **Development status:** `0.3.10` is a working development build. MATLAB Project and folder backends are exercised by automated MATLAB tests and repository acceptance tests. Function call-hierarchy and symbol-reference graphs use the installed MATLAB language service and a conservative MATLAB syntax fallback. See the [acceptance findings](docs/ACCEPTANCE_TESTS.md) for known limitations and pending repairs.
+> **Development status:** `0.3.11` is a working development build. MATLAB Project and folder backends are exercised by automated MATLAB tests and repository acceptance tests. Function call-hierarchy and symbol-reference graphs use the installed MATLAB language service and a conservative MATLAB syntax fallback. See the [acceptance findings](docs/ACCEPTANCE_TESTS.md) for known limitations and pending repairs.
 
 ## Why MATLAB Viz?
 
@@ -11,7 +11,7 @@ General-purpose code-graph extensions usually depend on the Language Server Prot
 - MATLAB Projects: `updateDependencies(project)` followed by `project.Dependencies`
 - Ordinary folders: `matlab.codetools.requiredFilesAndProducts(file,"toponly")`
 
-The Project backend is the programmatic form of MATLAB's built-in Dependency Analyzer graph. The folder backend provides direct MATLAB-code dependencies when the selected folder is not a MATLAB Project.
+The Project backend is the programmatic form of MATLAB's built-in Dependency Analyzer graph. The folder backend provides direct MATLAB-code dependencies when the selected folder is not a MATLAB Project, plus limited saved Simulink model/subsystem reference metadata.
 
 ## Current functionality
 
@@ -40,7 +40,8 @@ The Project backend is the programmatic form of MATLAB's built-in Dependency Ana
 
 - VS Code or VSCodium 1.95 or newer
 - MATLAB available locally
-- MATLAB R2019a or newer for Project dependency APIs; newer releases expose more Dependency Analyzer options
+- MATLAB R2025a or newer for the Project backend's configured analysis options; automated validation uses R2026b. Older releases are not validated.
+- Simulink installed/licensed for model analysis; ordinary MATLAB-code folder analysis does not require Simulink.
 - Node.js LTS only for developing or packaging MATLAB Viz
 
 File dependency graphs do not require the MATLAB language server. Function and symbol graphs require a MATLAB language extension that supplies Definition and References results in VSCodium. Your source code and dependency graph stay on your machine.
@@ -61,7 +62,7 @@ To create an installable package:
 
 ```powershell
 npm run package
-codium --install-extension matlab-viz-0.3.10.vsix
+codium --install-extension matlab-viz-0.3.11.vsix
 ```
 
 ## Standalone MATLAB API
@@ -225,6 +226,25 @@ intentionally overlap. The standalone MATLAB renderer is separate from these
 webview export improvements.
 
 ## Graph semantics
+
+For Simulink work, prefer **Project** mode when a MATLAB Project is available.
+It includes the native model/library/callback/data-dictionary file relationships;
+`matlabViz.project.analyzeModelParameters` additionally asks MATLAB to analyze code
+in block parameters. This setting affects only Project mode.
+
+Folder mode reads saved direct model/subsystem references from `.slx`/`.mdl`
+metadata without loading those diagrams. Every inspected model gets an explicit
+**Partial Simulink folder analysis** notice: library links, callbacks, dictionaries,
+parameter code, and required products are not covered by this scan. Unresolved
+names or unreadable archives get additional warnings; no target path is guessed.
+External lookup/filtering still applies. More notices after upgrading can therefore
+mean newly disclosed coverage limits, not newly broken models. Hiding isolated
+nodes does not remove these notices. See the [Simulink validation guide](docs/SIMULINK_VALIDATION.md).
+
+Simulink nodes are files, not block-instance diagrams. Two instances of the same
+referenced model are one file relationship. Binary `.slx`, `.slxp`, and `.sldd`
+navigation delegates to the editor's installed handler or normal binary fallback;
+MATLAB Viz does not itself open a MATLAB session or simulate on navigation.
 
 An arrow `A → B` means that **A depends on B**. Consequently:
 

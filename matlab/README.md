@@ -14,7 +14,7 @@ addpath("matlab")
 report = analyzeMatlabFileDependencies("path/to/source");
 ```
 
-For every supported source file, the analyzer calls:
+For MATLAB program sources, the analyzer calls:
 
 ```matlab
 matlab.codetools.requiredFilesAndProducts(file,"toponly")
@@ -22,6 +22,14 @@ matlab.codetools.requiredFilesAndProducts(file,"toponly")
 
 Calling the API once per file preserves direct edges. An edge `A -> B` means
 that file A directly depends on file B.
+
+For `.slx`/`.mdl` sources, it instead uses `Simulink.MDLInfo` to read saved direct
+model/subsystem reference metadata without loading the diagram. This is partial
+model analysis: a warning accompanies every inspected model. Library links,
+callbacks, dictionaries, parameter code, and model product requirements are not
+analyzed in folder mode. Use the extension's MATLAB Project backend for broader
+Simulink file dependencies; a flat transitive list is not substituted for direct
+edges. See [Simulink validation](../docs/SIMULINK_VALIDATION.md).
 
 ## Report contents
 
@@ -130,3 +138,11 @@ The results are static dependencies, not execution traces. Dynamic names,
 resolved. Results also depend on required files and products being available on
 the MATLAB path. The analyzer temporarily adds the source tree to the path and
 restores the original path before returning.
+
+Unresolved saved model names produce warnings on the source file rather than
+invented missing-node paths. Invalid/default metadata descriptors are reported
+as unreadable, not treated as models with no dependencies. The original model
+files are not saved or updated. Required-products tables describe only the MATLAB
+program-file analysis, not a complete Simulink product inventory. `.sldd` files
+returned as targets are labeled as data dictionaries; protected model targets are
+labeled separately, but protected-model generation is not validated.

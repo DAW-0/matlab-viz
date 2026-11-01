@@ -29,7 +29,7 @@ npm run package
 The package script type-checks and bundles the extension before invoking `vsce`. Install the resulting VSIX with:
 
 ```powershell
-codium --install-extension .\matlab-viz-0.3.10.vsix
+codium --install-extension .\matlab-viz-0.3.11.vsix
 ```
 
 ## MATLAB-only validation
@@ -321,6 +321,46 @@ The visual phase seeds a graph cache before activation. Run it first in a fresh
 profile, or in its own launcher invocation; running it after another phase can
 leave a controller already holding that phase's cached graph. See
 [0.3.10 validation](VALIDATION_0.3.10.md) for final artifact directories and scope.
+
+## Licensed Simulink validation
+
+The 0.3.11 Node suite contains 90 deterministic tests and one opt-in MATLAB runner
+test. The new deterministic check verifies binary model navigation delegates to
+`vscode.open`, never forced text loading or an extension-issued MATLAB command.
+The MATLAB suite has 23 tests: the existing 13, an unreadable-model regression,
+and nine licensed generated-model tests. Unavailable Simulink/license is reported
+as incomplete coverage, not a passing licensed test.
+
+Run `runtests("test/matlab")` in a separate MATLAB process and require
+`assertSuccess(results)`. The fixture factory refuses an existing destination or
+an already-open Project. Generated binaries and reports must remain outside Git
+and the VSIX. The [Simulink guide](SIMULINK_VALIDATION.md) explains native graph
+comparison, code-execution markers, direct-reference scope, and unvalidated cases.
+
+To retain a fixture for editor tests:
+
+```matlab
+addpath("matlab", "test/matlab")
+probeMatlabVizSimulink(artifactsRoot)
+```
+
+Then, in the test shell:
+
+```powershell
+$env:MATLAB_VIZ_TEST_EXECUTABLE = 'C:\Program Files\MATLAB\R2026b\bin\matlab.exe'
+$env:MATLAB_VIZ_SIMULINK_FIXTURE = 'E:\_Git\matlab-viz\.tools\validation\0.3.11\probe-metadata\fixture\fixture.json'
+& .\test\host\runRestoration.ps1 `
+  -FixturesRoot 'E:\_Git\matlab-viz\.tools\validation\0.3.5\host-fixtures' `
+  -ArtifactsRoot 'E:\_Git\matlab-viz\.tools\validation\0.3.11\native-models-new' `
+  -Phases simulink
+```
+
+Use fresh directories when rerunning the probe/launcher. The native phase checks
+automatic Project detection, parameter-setting Refresh, folder scope warnings,
+external/isolated filtering, classification, and unchanged fixture source bytes.
+Normal editor settings, user projects, and WEST model files are not changed.
+The separate full renderer/restoration suite remains required when editor UI or
+navigation code changes. See [0.3.11 evidence](VALIDATION_0.3.11.md).
 
 ## Release checklist
 

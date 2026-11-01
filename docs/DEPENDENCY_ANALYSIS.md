@@ -15,7 +15,7 @@ This is the preferred backend because the graph is maintained by MATLAB's Depend
 
 ## Folder mode
 
-For an ordinary folder, MATLAB Viz discovers supported files and runs:
+For MATLAB program files in an ordinary folder, MATLAB Viz runs:
 
 ```matlab
 [requiredFiles, requiredProducts] = ...
@@ -23,6 +23,13 @@ For an ordinary folder, MATLAB Viz discovers supported files and runs:
 ```
 
 It performs one call per source file. A single call over all files would return a flattened dependency set and would not identify which source introduced each direct edge.
+
+Saved `.slx`/`.mdl` sources instead use `Simulink.MDLInfo` for direct model/subsystem
+reference metadata, without loading the diagram. Every inspected model receives
+a partial-analysis notice. Folder scanning does not recover library, callback,
+dictionary, parameter-code, or model-product relationships; Project mode is the
+broader backend. Missing/unreadable metadata is warned, not treated as proof of
+no dependencies. See the [Simulink guide and fixtures](SIMULINK_VALIDATION.md).
 
 Supported analysis roots currently discover `.m`, `.mlx`, `.p`, `.slx`, `.mdl`, and `.mlapp` files. Files returned as dependencies can have other extensions.
 

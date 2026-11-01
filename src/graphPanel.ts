@@ -254,7 +254,15 @@ export class GraphPanel implements vscode.Disposable {
         break;
       case "openFile":
         if (message.path && fs.existsSync(message.path)) {
-          const document = await vscode.workspace.openTextDocument(vscode.Uri.file(message.path));
+          const uri = vscode.Uri.file(message.path);
+          if ([".slx", ".slxp", ".sldd"].includes(path.extname(message.path).toLowerCase())) {
+            // These are binary/archive assets, not UTF-8 source documents.
+            // Let an installed editor handle them (or show its normal binary
+            // fallback); never launch MATLAB, evaluate, or simulate on navigation.
+            await vscode.commands.executeCommand("vscode.open", uri);
+            break;
+          }
+          const document = await vscode.workspace.openTextDocument(uri);
           const editor = await vscode.window.showTextDocument(document, { preview: false });
           if (message.line !== undefined) {
             const position = new vscode.Position(message.line, message.character ?? 0);

@@ -354,6 +354,10 @@ function kind = kindForExtension(extension)
 switch lower(string(extension))
     case {".slx", ".mdl"}
         kind = "Simulink model";
+    case ".sldd"
+        kind = "Simulink data dictionary";
+    case ".slxp"
+        kind = "protected Simulink model";
     case ".mlx"
         kind = "live script";
     case ".mlapp"

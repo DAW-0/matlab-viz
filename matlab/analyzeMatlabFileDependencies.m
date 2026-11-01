@@ -155,9 +155,27 @@ problemMessages = strings(0, 1);
 for fileIndex = 1:numel(sourceFiles)
     sourceFile = sourceFiles(fileIndex);
     try
-        [requiredFiles, requiredProducts] = ...
-            matlab.codetools.requiredFilesAndProducts(sourceFile, "toponly");
-        dependencyPaths = string(requiredFiles(:));
+        [~, ~, sourceExtension] = fileparts(sourceFile);
+        if ismember(lower(sourceExtension), [".slx", ".mdl"])
+            % requiredFilesAndProducts analyzes MATLAB program files, not model
+            % contents. Never interpret its empty result as an isolated model.
+            % MDLInfo reads saved direct references without loading/simulating
+            % the diagram. Broader model relationships require Project mode.
+            problemSources(end + 1, 1) = sourceFile; %#ok<AGROW>
+            problemIdentifiers(end + 1, 1) = "MatlabViz:PartialSimulinkFolderAnalysis"; %#ok<AGROW>
+            problemMessages(end + 1, 1) = "Partial Simulink folder analysis: only saved direct model/subsystem references are read. Library links, callbacks, data dictionaries, block-parameter code, and required products are not analyzed. Use MATLAB Project mode for broader model dependencies."; %#ok<AGROW>
+            [dependencyPaths, unresolved] = savedModelDependencies(sourceFile);
+            for name = reshape(unresolved, 1, [])
+                problemSources(end + 1, 1) = sourceFile; %#ok<AGROW>
+                problemIdentifiers(end + 1, 1) = "MatlabViz:UnresolvedModelReference"; %#ok<AGROW>
+                problemMessages(end + 1, 1) = "Saved model reference could not be resolved on the analysis path: " + name + ". No guessed target path was added."; %#ok<AGROW>
+            end
+            requiredProducts = struct([]);
+        else
+            [requiredFiles, requiredProducts] = ...
+                matlab.codetools.requiredFilesAndProducts(sourceFile, "toponly");
+            dependencyPaths = string(requiredFiles(:));
+        end
         dependencyPaths(samePath(dependencyPaths, sourceFile)) = [];
         if ~includeExternal
             dependencyPaths = dependencyPaths(isWithinRoot(dependencyPaths, sourceRoot));
@@ -200,6 +218,44 @@ problems = table( ...
     relativePaths(problemSources, sourceRoot), problemSources, ...
     problemIdentifiers, problemMessages, repmat("warning", numel(problemSources), 1), ...
     VariableNames=["Source", "AbsoluteSource", "Identifier", "Message", "Severity"]);
+end
+
+function [paths, unresolved] = savedModelDependencies(sourceFile)
+paths = strings(0, 1); unresolved = strings(0, 1);
+if isempty(which("Simulink.MDLInfo"))
+    error("MatlabViz:SimulinkNotAvailable", ...
+        "Simulink is needed to read saved model-reference metadata for %s.", sourceFile);
+end
+info = Simulink.MDLInfo(sourceFile);
+% MDLInfo can return an empty/default descriptor for a corrupt archive rather
+% than throw. Such a result is not evidence of an empty reference list.
+if strlength(string(info.BlockDiagramType)) == 0
+    error("MatlabViz:UnreadableModelMetadata", "Saved Simulink model metadata could not be read: %s", sourceFile);
+end
+references = strings(0, 1);
+for field = ["ModelReferences", "SubsystemReferences"]
+    if isfield(info.Interface, field)
+        references = [references; string(info.Interface.(field)(:))]; %#ok<AGROW>
+    end
+end
+for reference = reshape(references, 1, [])
+    % MATLAB stores each reference as blockPath|modelName. Keep only the saved
+    % target name; never evaluate expressions or load a diagram to resolve it.
+    parts = split(reference, "|");
+    if numel(parts) ~= 2 || strlength(parts(2)) == 0
+        unresolved(end + 1, 1) = reference; %#ok<AGROW>
+        continue;
+    end
+    name = parts(2); [~, ~, extension] = fileparts(name);
+    if extension == "", candidates = name + [".slx", ".mdl", ".slxp"]; else, candidates = name; end
+    resolved = "";
+    for candidate = candidates
+        file = string(which(candidate));
+        if strlength(file) > 0 && isfile(file), resolved = file; break; end
+    end
+    if resolved == "", unresolved(end + 1, 1) = name; else, paths(end + 1, 1) = resolved; end %#ok<AGROW>
+end
+paths = unique(paths, "stable"); unresolved = unique(unresolved, "stable");
 end
 
 function [dependencyGraph, nodes, edges] = buildGraph(sourceFiles, edgePaths, sourceRoot, includeIsolated)
@@ -279,6 +335,9 @@ else
         repmat("function or file dependency", size(edgePaths, 1), 1), ...
         repmat("requiredFilesAndProducts (direct)", size(edgePaths, 1), 1), ...
         VariableNames=["Source", "Target", "SourcePath", "TargetPath", "Kind", "Details"]);
+    modelEdges = endsWith(lower(edges.SourcePath), [".slx", ".mdl"]);
+    edges.Kind(modelEdges) = "saved model reference";
+    edges.Details(modelEdges) = "Simulink.MDLInfo (saved direct model/subsystem references; partial model analysis)";
     edges = sortrows(edges, ["Source", "Target"]);
 end
 end
@@ -342,6 +401,8 @@ kinds(lower(extensions) == ".mlx") = "live script";
 kinds(lower(extensions) == ".mlapp") = "MATLAB app";
 kinds(lower(extensions) == ".p") = "protected MATLAB code";
 kinds(lower(extensions) == ".m") = "MATLAB code";
+kinds(lower(extensions) == ".sldd") = "Simulink data dictionary";
+kinds(lower(extensions) == ".slxp") = "protected Simulink model";
 end
 
 function problems = missingNodeProblems(nodes, sourceRoot)

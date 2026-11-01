@@ -106,6 +106,21 @@ See [0.3.8 validation](VALIDATION_0.3.8.md) for evidence and exact test scope.
 
 See [0.3.10 validation](VALIDATION_0.3.10.md) for the test evidence.
 
+## Seventh repair batch: 0.3.11
+
+- Nine generated-model tests compare Project results against native MATLAB
+  digraph endpoints and exercise model references, library/callback/dictionary
+  links, parameter-code off/on, MDL, subsystem references, scope, missing-file
+  recovery, immutable source bytes, and standalone report artifacts.
+- Folder mode's silent Simulink gap is repaired with saved direct-reference
+  metadata and explicit partial-scope warnings. It does not claim the broader
+  Project results or substitute a transitive requirement list for direct edges.
+- A native VSCodium phase verifies the model workflow through actual commands;
+  binary model/dictionary navigation now delegates to the editor's handler.
+
+See the [Simulink scope guide](SIMULINK_VALIDATION.md) and
+[0.3.11 validation](VALIDATION_0.3.11.md) for coverage boundaries and evidence.
+
 ## Pending repairs and coverage gaps
 
 - Static reference inference does not fully model nested scopes, imports,
@@ -120,7 +135,10 @@ See [0.3.10 validation](VALIDATION_0.3.10.md) for the test evidence.
 - Simulink dependency counts differ from the historical snapshot; a fresh
   old/new comparison on the current checkout is identical (515 files, 648
   edges, five notices). The historical 694-edge discrepancy remains unexplained.
-- Simulink model-parameter and add-on dependency options need dedicated fixtures.
+- Real installed add-on discovery still needs a controlled fixture. The option
+  passthrough is tested, not third-party add-on internals. Protected models,
+  variants/masks, Stateflow, specialized blocks, and dictionary hierarchies also
+  need additional model fixtures; see the Simulink guide.
 - Cross-platform behavior still needs suitable hosts. Isolated VSCodium tests
   now cover actual notification retries and detached-window restoration on Windows.
 
