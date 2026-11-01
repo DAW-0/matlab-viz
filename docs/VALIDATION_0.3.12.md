@@ -19,6 +19,7 @@ or analyzed afresh. Generated fixtures and isolated editor profiles remain ignor
 | Native grouped restart | Passed: mixed expansion, aggregate details, positions, selection/filters, custom viewport |
 | Native grouped Refresh/error | Passed with actual MATLAB: collapsed/expanded views retained; failure retains manually zoomed previous view |
 | Existing native regressions | All nine passed: visual, clarity, seven call/reference/restart/Reload Window/provider-timeout phases |
+| Native Simulink regression | All four observation groups passed: Project/parameter Refresh, partial folder scope, lookup/external filtering, connected filtering and fixture byte preservation |
 | VSIX inspection | 16 entries, seven production asset/helper SHA-256 hashes match; no tests/profiles/generated models/logs/node_modules |
 | Local installation | `daw-0.matlab-viz@0.3.12` verified; normal user windows left running |
 
@@ -107,6 +108,8 @@ Ignored artifacts under `.tools/validation/0.3.12/` include:
   SVG/PNG/JSON/DOT/CSV, screenshot, snapshot and isolated editor logs.
 - `native-regression-verified/`: all nine passing old native phases, full/filtered
   SVG/PNG, pointer/divider/screenshot and restoration evidence.
+- `native-simulink/`: passing real-editor Simulink result JSON, exported graphs,
+  screenshots and logs against the unchanged retained generated-model fixture.
 
 Earlier runs remain retained, including the fitted-view test assertion and
 detached-tab failure, and are superseded by the named final results above.
