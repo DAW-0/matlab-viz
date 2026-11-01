@@ -92,6 +92,20 @@ See [0.3.8 validation](VALIDATION_0.3.8.md) for evidence and exact test scope.
 - Sizing, persistence, and pointer logic are commented in the implementation.
   See [0.3.9 validation](VALIDATION_0.3.9.md) for test evidence and limitations.
 
+## Sixth repair batch: 0.3.10
+
+- Failed/cancelled attempts identify the previous graph without changing its
+  model, cache, selection, or saved analysis target. The notice restores with the
+  same open graph tab and clears after successful analysis.
+- Graph-specific details distinguish file dependencies, function calls, and
+  grouped reference links; distinct-neighbor counts do not imply raw occurrence
+  counts. Sidebar counts and notices use consistent terminology.
+- External analysis policy is recorded for each new extension result and shown
+  separately from the visibility checkbox. Settings navigation does not itself
+  change settings or run analysis; legacy policy is explicitly unknown.
+
+See [0.3.10 validation](VALIDATION_0.3.10.md) for the test evidence.
+
 ## Pending repairs and coverage gaps
 
 - Static reference inference does not fully model nested scopes, imports,
@@ -102,10 +116,7 @@ See [0.3.8 validation](VALIDATION_0.3.8.md) for evidence and exact test scope.
 - Dense graphs still have crossing edges. Manually dragged nodes may overlap;
   choosing a layout again restores automatic spacing. Very large graphs should
   use vector SVG rather than an impractically large raster image.
-- Reference headings/counts and analysis-level external controls need clearer
-  wording and placement.
 - Standalone MATLAB-rendered labels can intersect edges or approach boundaries.
-- A retained old graph should be clearly identified after a failed Refresh.
 - Simulink dependency counts differ from the historical snapshot; a fresh
   old/new comparison on the current checkout is identical (515 files, 648
   edges, five notices). The historical 694-edge discrepancy remains unexplained.

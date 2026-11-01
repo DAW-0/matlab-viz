@@ -93,7 +93,12 @@ export async function run(): Promise<void> {
         const svg=document.getElementById('graph'),rect=svg.getBoundingClientRect();svg.dispatchEvent(new WheelEvent('wheel',{clientX:rect.left+rect.width/2,clientY:rect.top+rect.height/2,deltaY:-200,cancelable:true}));
         return true;`);
       await new Promise((resolve) => setTimeout(resolve, 300));
+      // A missing test-only root fails before MATLAB starts. The resulting
+      // view-only notice must survive restart without changing the saved graph.
+      await vscode.commands.executeCommand("matlabViz.analyzeSelection", vscode.Uri.file(path.join(artifacts, "missing-root")));
+      await waitFor(async () => detached.evaluate("return !document.getElementById('analysis-status').hidden;"));
       const snapshot = await detached.evaluate(snapshotBody);
+      assert.equal(snapshot.analysisBanner.hidden, false);
       assert.equal(snapshot.detailsWidth, "430px");
       assert.equal(snapshot.labels.length, 2);
       await fs.writeFile(path.join(artifacts, "expected-call-view.json"), JSON.stringify({ snapshot, pageUrl: detached.pageUrl }, null, 2));
@@ -118,6 +123,7 @@ export async function run(): Promise<void> {
       if (refreshed.metadata.analysisTarget?.type === "call-hierarchy") assert.equal(refreshed.metadata.analysisTarget.direction, "outgoing");
       assert.equal(refreshed.nodes.length, 3);
       assert.equal(await view.evaluate("return document.getElementById('graph-main').style.getPropertyValue('--details-width');"), "430px");
+      assert.equal(await view.evaluate("return document.getElementById('analysis-status').hidden;"), true);
       log("Refresh after restart preserved original function, outgoing direction, and depth despite a different editor cursor");
     } else if (stage === "prepare-reference") {
       await select("leaf.m", "value");
@@ -157,6 +163,8 @@ export async function run(): Promise<void> {
       if (!marker || marker.runId !== runId) {
         await vscode.commands.executeCommand("matlabViz.showGraph");
         const view = await debug.graph();
+        await vscode.commands.executeCommand("matlabViz.analyzeSelection", vscode.Uri.file(path.join(artifacts, "missing-root")));
+        await waitFor(async () => view.evaluate("return !document.getElementById('analysis-status').hidden;"));
         await view.evaluate(`const svg=document.getElementById('graph'),rect=svg.getBoundingClientRect();svg.dispatchEvent(new WheelEvent('wheel',{clientX:rect.left+rect.width/2,clientY:rect.top+rect.height/2,deltaY:-100,cancelable:true}));return true;`);
         await new Promise((resolve) => setTimeout(resolve, 200));
         const before = await cached();

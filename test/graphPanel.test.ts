@@ -57,6 +57,28 @@ test("cached data does not open a panel until Show is requested", async () => {
   assert.equal(created[0].messages[0].type, "setGraph");
 });
 
+test("failed-attempt status updates do not replace/reveal the graph and success explicitly clears saved status", async () => {
+  const { bridge, graph, created } = panelHarness();
+  bridge.update(graph); await created[0].receive({ type: "ready" });
+  const before = created[0].messages.filter((message: any) => message.type === "setGraph").length;
+  bridge.setAnalysisStatus({ kind: "failed", message: "Test failure", occurredAt: "now" });
+  assert.equal(created[0].messages.at(-1).type, "analysisStatus");
+  assert.equal(created[0].messages.at(-1).status.kind, "failed");
+  assert.equal(created[0].messages.filter((message: any) => message.type === "setGraph").length, before);
+  assert.equal(created[0].reveals.length, 0);
+  bridge.update(graph); assert.equal(created[0].messages.at(-1).status, null);
+  bridge.restore(created[0], { version: 1 }); await created[0].receive({ type: "ready" });
+  assert.equal(created[0].messages.at(-1).status, null, "late readiness replayed the failure after success");
+});
+
+test("external analysis settings navigate to the explicit setting without changing graph visibility or running analysis", async () => {
+  const { bridge, graph, created, editorCommands } = panelHarness(); bridge.update(graph);
+  await created[0].receive({ type: "externalSettings" });
+  assert.equal(editorCommands.at(-1)?.name, "workbench.action.openSettings");
+  assert.deepEqual(editorCommands.at(-1)?.args, ["@id:matlabViz.includeExternal"]);
+  assert.equal(created[0].messages.length, 0);
+});
+
 test("a restored auxiliary panel is adopted without creating or relocating a panel", async () => {
   const { bridge, graph, created, makePanel } = panelHarness();
   const restored = makePanel(7);

@@ -24,7 +24,8 @@ function controllerHarness(options: { cachedGraph?: DependencyGraph; badCache?: 
   const restorations: unknown[] = [];
   let serializer: any;
   let showCount = 0;
-  const panel = { graph: undefined as DependencyGraph | undefined, update(value: DependencyGraph) { this.graph = value; },
+  const panel = { graph: undefined as DependencyGraph | undefined, analysisStatus: undefined as any,
+    setAnalysisStatus(status: any) { this.analysisStatus = status; }, update(value: DependencyGraph) { this.graph = value; this.analysisStatus = undefined; },
     setGraph(value: DependencyGraph) { this.graph = value; }, show(value?: DependencyGraph) { if (value) this.graph = value; showCount++; },
     restore(value: unknown) { restorations.push(value); }, showUnavailable() {}, exportGraph() {}, showProblems() {} };
   const status = { text: "", show() {} };
@@ -82,7 +83,7 @@ function controllerHarness(options: { cachedGraph?: DependencyGraph; badCache?: 
         getConfiguration: () => ({ get: () => false }), onDidChangeConfiguration: () => disposable
       }
     },
-    "./configuration": { readAnalysisOptions: () => ({}), readSymbolAnalysisOptions: () => ({ maximumDepth: 3 }) },
+    "./configuration": { readAnalysisOptions: () => ({ includeExternal: false }), readSymbolAnalysisOptions: () => ({ maximumDepth: 3, includeExternal: true }) },
     "./graphPanel": { GraphPanel: class { constructor() { return panel; } }, SidebarProvider: class { setGraph() {} } },
     "./matlabRunner": { runMatlabAnalysis: async (root: string) => { calls.push(root); if (failure) throw failure; const value = graph(root); value.problems = options.graphProblems ?? []; return { graph: value }; } },
     "./symbolAnalyzer": { SymbolAnalyzer: class {
@@ -135,9 +136,13 @@ for (const command of ["matlabViz.analyzeSelection", "matlabViz.showCallHierarch
     await invoke(harness, command, harness.fileUri("/failed"));
     assert.equal(harness.notices.length, 1);
     assert.equal(harness.panel.graph, original, "failed analysis replaced the previous graph");
+    assert.equal(harness.panel.analysisStatus.kind, "failed");
+    assert.match(harness.panel.analysisStatus.message, /Expected MATLAB failure/);
+    assert.match(harness.status.text, /previous graph/);
     harness.fail();
     await invoke(harness, command, harness.fileUri("/retry"));
     assert.notEqual(harness.panel.graph, original, "retry was blocked by the open error notification");
+    assert.equal(harness.panel.analysisStatus, undefined, "successful retry left a stale failure notice");
     assert.ok(!harness.log.some((line) => line.includes("already running")));
     const successfulStatus = harness.status.text;
     harness.notices[0]?.("Show Logs");
@@ -166,6 +171,26 @@ test("cancellation releases the lock without showing an error notification", asy
   harness.fail();
   await invoke(harness, "matlabViz.analyzeSelection", harness.fileUri("/retry"));
   assert.equal(harness.panel.graph?.metadata.root, "/retry");
+});
+
+test("cancelled attempts identify the retained graph without mutating its model or disk cache", async () => {
+  const harness = controllerHarness();
+  await invoke(harness, "matlabViz.analyzeSelection", harness.fileUri("/original"));
+  const original = JSON.stringify(harness.panel.graph), cache = Buffer.from(harness.files.get(path.join("/cache", "last-graph.json"))!);
+  harness.fail(new TestCancellationError("User cancelled")); await invoke(harness, "matlabViz.refresh");
+  assert.equal(harness.panel.analysisStatus.kind, "cancelled"); assert.equal(harness.notices.length, 0);
+  assert.equal(JSON.stringify(harness.panel.graph), original);
+  assert.deepEqual(Buffer.from(harness.files.get(path.join("/cache", "last-graph.json"))!), cache);
+});
+
+test("successful file, function, and reference results record their actual external-analysis policy", async () => {
+  const harness = controllerHarness();
+  await invoke(harness, "matlabViz.analyzeSelection", harness.fileUri("/original"));
+  assert.equal(harness.panel.graph?.metadata.analysisIncludeExternal, false);
+  for (const command of ["matlabViz.showCallHierarchy", "matlabViz.traceSymbolReferences"]) {
+    await invoke(harness, command); assert.equal(harness.panel.graph?.metadata.analysisIncludeExternal, true);
+  }
+  assert.match(harness.status.text, /reference links/);
 });
 
 test("the first Show command waits for delayed cache loading without analyzing", async () => {

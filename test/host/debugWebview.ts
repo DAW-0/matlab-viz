@@ -119,5 +119,6 @@ export const snapshotBody = `
     labels:[...svg.querySelectorAll('g.node')].map(node=>node.textContent).sort(),
     transform:svg.querySelector(':scope > g')?.getAttribute('transform'),
     details:document.getElementById('details').textContent,
-    detailsWidth:document.getElementById('graph-main').style.getPropertyValue('--details-width')
+    detailsWidth:document.getElementById('graph-main').style.getPropertyValue('--details-width'),
+    analysisBanner:{hidden:document.getElementById('analysis-status').hidden,text:document.getElementById('analysis-status-text').textContent}
   };`;

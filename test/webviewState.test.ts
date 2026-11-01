@@ -20,6 +20,7 @@ class Element {
   public style: Record<string, any> = { setProperty: (key: string, value: string) => { this.style[key] = value; } };
   public focused = false;
   public focus(): void { this.focused = true; }
+  public click(): void { this.trigger("click"); }
   public options = [{ textContent: "" }, { textContent: "" }, { textContent: "" }];
   public clientWidth = 1000;
   public clientHeight = 600;
@@ -288,4 +289,60 @@ test("canvas-only resize refits fitted views and preserves custom zoom without c
   view.get("graph").trigger("wheel", { deltaY: -100 }); view.flush(); const customized = view.state().transform;
   view.get("graph").clientWidth = 500; for (const callback of view.resizeObservers) callback(); view.flush();
   assert.deepEqual(view.state().transform, customized);
+});
+
+test("failure banner retains graph state and treats error text as plain text", () => {
+  const view = webview(); view.load();
+  view.nodes()[0]!.trigger("click"); view.get("graph").trigger("wheel", { deltaY: -100 }); view.flush();
+  const before = view.state(), nodes = view.nodes();
+  view.send({ type: "analysisStatus", status: { kind: "failed", message: '<img src=x onerror="bad()">', occurredAt: "now" } });
+  assert.equal(view.get("analysis-status").hidden, false);
+  assert.match(view.get("analysis-status-text").textContent, /Showing the previous graph/);
+  assert.ok(view.get("analysis-status-text").textContent.includes('<img src=x onerror="bad()">'));
+  assert.equal(view.get("analysis-status-text").children.length, 0);
+  for (const key of ["graphKey", "positions", "transform", "selectedId", "controls", "detailsWidth"]) assert.deepEqual(view.state()[key], before[key]);
+  assert.deepEqual(view.nodes(), nodes, "status rebuilt graph nodes");
+  view.get("status-logs").click(); assert.equal(view.messages.at(-1).type, "openLogs");
+  view.get("status-refresh").click(); assert.equal(view.messages.at(-1).type, "refresh");
+});
+
+test("failure/cancellation notices restore only for the same graph and clear after a successful result", () => {
+  const view = webview(); view.load();
+  view.send({ type: "analysisStatus", status: { kind: "cancelled", message: "Stopped", occurredAt: "now" } });
+  const saved = view.state(), restored = webview(saved); restored.load();
+  assert.equal(restored.get("analysis-status").hidden, false); assert.match(restored.get("analysis-status-text").textContent, /cancelled/);
+  const serializer = webview(); serializer.load(graph, saved); assert.equal(serializer.get("analysis-status").hidden, false);
+  restored.send({ type: "setGraph", graph, analysisStatus: null }); assert.equal(restored.get("analysis-status").hidden, true);
+  const stale = webview(saved); stale.load({ ...graph, metadata: { ...graph.metadata, generatedAt: "new result" } }); assert.equal(stale.get("analysis-status").hidden, true);
+  for (const malformed of [true, { kind: "failed", message: 42 }, { kind: "success", message: "wrong", occurredAt: "now" }]) {
+    stale.send({ type: "analysisStatus", status: malformed }); assert.equal(stale.get("analysis-status").hidden, true);
+  }
+});
+
+test("graph-specific node counts, edge headings, and traversal labels use relationship semantics", () => {
+  for (const [type, heading, forward, backward, counts] of [
+    ["files", "File dependency", "Dependencies", "Impact", "1 dependency · 1 impacted file"],
+    ["call-hierarchy", "Function call", "Callees", "Callers", "1 callee · 1 caller"],
+    ["references", "Symbol reference", "Referenced symbols", "Referencing containers", "1 referenced symbol · 1 referencing container"]
+  ]) {
+    const view = webview(), fixture = { ...graph, metadata: { ...graph.metadata, graphType: type! } }; view.load(fixture);
+    view.nodes().find((node) => node.attributes["data-node-id"] === "b")!.trigger("click"); view.flush();
+    assert.ok(view.get("details").textContent.includes(counts!));
+    assert.equal(view.get("direction").options[1]?.textContent, forward); assert.equal(view.get("direction").options[2]?.textContent, backward);
+    const edge = view.get("graph").children[1]!.children.find((node) => node.attributes["data-edge-id"] === "ab")!;
+    edge.trigger("click"); view.flush(); assert.equal(view.get("details").children[0]?.textContent, heading);
+    if (type === "references") { assert.match(view.get("summary").textContent, /reference links/); assert.match(view.get("details").textContent, /group multiple source occurrences/); }
+  }
+});
+
+test("external policy describes generated data while visibility and settings actions stay independent", () => {
+  for (const [policy, label] of [[true, "enabled"], [false, "disabled"], [undefined, "not recorded"]] as const) {
+    const view = webview(), fixture = { ...graph, metadata: { ...graph.metadata, analysisIncludeExternal: policy } }; view.load(fixture);
+    assert.ok(view.get("external-policy").textContent.includes(label));
+    view.get("external").checked = false; view.get("external").trigger("change"); view.flush();
+    assert.ok(view.get("external-policy").textContent.includes(label));
+    assert.ok(!view.messages.some((message) => message.type === "refresh"));
+    view.get("external-settings").click(); assert.equal(view.messages.at(-1).type, "externalSettings");
+    assert.equal(view.get("external").checked, false);
+  }
 });

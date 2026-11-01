@@ -99,7 +99,9 @@ class MatlabVizController implements vscode.Disposable {
         async (progress, token) => {
           progress.report({ message: "Starting MATLAB dependency analysis…" });
           const helper = vscode.Uri.joinPath(this.context.extensionUri, "matlab").fsPath;
-          const result = await runMatlabAnalysis(root, helper, readAnalysisOptions(root), token, this.output);
+          const options = readAnalysisOptions(root);
+          const result = await runMatlabAnalysis(root, helper, options, token, this.output);
+          result.graph.metadata.analysisIncludeExternal = options.includeExternal;
           this.lastRoot = root;
           this.lastSymbolAction = undefined;
           this.lastCallSeed = undefined;
@@ -109,7 +111,7 @@ class MatlabVizController implements vscode.Disposable {
           this.panel.update(result.graph);
           this.sidebar.setGraph(result.graph);
           await this.persistGraph(result.graph);
-          this.status.text = `$(type-hierarchy) ${result.graph.nodes.length} files · ${result.graph.edges.length} edges`;
+          this.status.text = `$(type-hierarchy) ${result.graph.nodes.length} files · ${result.graph.edges.length} dependencies`;
           this.notifyProblems(result.graph);
         }
       );
@@ -174,6 +176,7 @@ class MatlabVizController implements vscode.Disposable {
             options.maximumDepth = Math.max(1, Math.min(20, Math.trunc(requestedDepth)));
           }
           const result = await this.symbolAnalyzer.analyzeCallHierarchy(direction, options, token, seed);
+          result.graph.metadata.analysisIncludeExternal = options.includeExternal;
           result.graph.metadata.analysisTarget = storeCallTarget(direction, result.seed);
           this.lastSymbolAction = direction;
           this.lastCallSeed = result.seed;
@@ -200,7 +203,9 @@ class MatlabVizController implements vscode.Disposable {
       await vscode.window.withProgress(
         { location: vscode.ProgressLocation.Notification, title: "MATLAB Viz: tracing symbol references…", cancellable: true },
         async (_progress, token) => {
-          const result = await this.symbolAnalyzer.analyzeReferences(readSymbolAnalysisOptions(), token, anchor);
+          const options = readSymbolAnalysisOptions();
+          const result = await this.symbolAnalyzer.analyzeReferences(options, token, anchor);
+          result.graph.metadata.analysisIncludeExternal = options.includeExternal;
           result.graph.metadata.analysisTarget = storeReferenceTarget(result.anchor);
           this.lastSymbolAction = "references";
           this.lastReferenceAnchor = result.anchor;
@@ -221,7 +226,7 @@ class MatlabVizController implements vscode.Disposable {
     this.panel.update(graph);
     this.sidebar.setGraph(graph);
     await this.persistGraph(graph);
-    this.status.text = `$(type-hierarchy) ${graph.nodes.length} symbols · ${graph.edges.length} edges`;
+    this.status.text = `$(type-hierarchy) ${graph.nodes.length} symbols · ${graph.edges.length} ${graph.metadata.graphType === "references" ? "reference links" : "calls"}`;
     this.notifyProblems(graph);
   }
 
@@ -251,6 +256,13 @@ class MatlabVizController implements vscode.Disposable {
   }
 
   private handleAnalysisError(error: unknown, operation: string): void {
+    // Keep the last successful model/cache/Refresh target intact. Only view
+    // status changes; dismissing an old notification cannot clear a newer result.
+    if (this.graph) this.panel.setAnalysisStatus({
+      kind: error instanceof vscode.CancellationError ? "cancelled" : "failed",
+      message: `${operation}: ${error instanceof Error ? error.message : String(error)}`,
+      occurredAt: new Date().toISOString()
+    });
     if (error instanceof vscode.CancellationError) {
       this.output.appendLine(`[MATLAB Viz] ${operation} cancelled.`);
     } else {
@@ -263,7 +275,7 @@ class MatlabVizController implements vscode.Disposable {
           if (action === "Show Logs") this.output.show();
         });
     }
-    this.status.text = "$(type-hierarchy) MATLAB Viz";
+    this.status.text = this.graph ? `$(warning) MATLAB Viz: previous graph (${error instanceof vscode.CancellationError ? "analysis cancelled" : "analysis failed"})` : "$(type-hierarchy) MATLAB Viz";
   }
 
   private async resolveRoot(resource?: vscode.Uri): Promise<string | undefined> {
@@ -367,7 +379,7 @@ class MatlabVizController implements vscode.Disposable {
       this.panel.setGraph(this.graph);
       this.sidebar.setGraph(this.graph);
       const type = this.graph.metadata.graphType ?? "files";
-      this.status.text = `$(type-hierarchy) ${this.graph.nodes.length} ${type === "files" ? "files" : "symbols"} · ${this.graph.edges.length} ${type === "references" ? "references" : type === "call-hierarchy" ? "calls" : "dependencies"}`;
+      this.status.text = `$(type-hierarchy) ${this.graph.nodes.length} ${type === "files" ? "files" : "symbols"} · ${this.graph.edges.length} ${type === "references" ? "reference links" : type === "call-hierarchy" ? "calls" : "dependencies"}`;
       this.output.appendLine(`[MATLAB Viz] Restored cached ${type} graph: ${this.graph.nodes.length} nodes, ${this.graph.edges.length} edges; Refresh target: ${target?.type ?? "unavailable"}.`);
     } catch (error) {
       const code = (error as { code?: string })?.code;

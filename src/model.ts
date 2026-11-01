@@ -76,8 +76,17 @@ export interface GraphMetadata {
   durationSeconds: number;
   projectName?: string;
   searchRoots?: string[];
+  /** Policy used for this result, not the current visibility checkbox/settings. */
+  analysisIncludeExternal?: boolean;
   nodeCount?: number;
   edgeCount?: number;
+}
+
+/** View-only latest-attempt state; never mix a failed attempt into graph data. */
+export interface GraphAnalysisStatus {
+  kind: "failed" | "cancelled";
+  message: string;
+  occurredAt: string;
 }
 
 export interface DependencyGraph {

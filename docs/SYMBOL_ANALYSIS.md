@@ -75,6 +75,14 @@ containers, and final grouped edge counts. These counts need not be identical.
 Variables remain language-provider-only: syntax matching does not infer a variable
 with the same spelling across files or reconstruct reads, writes, or values.
 
+The reference summary counts container-to-symbol **reference links**, not raw
+occurrences. Node details count distinct referenced symbols and referencing
+containers in the complete result; edge details retain grouped source lines and
+evidence. Call graphs instead show callers/callees and Function call headings.
+The toolbar's recorded external-analysis policy refers to nodes outside open
+workspace folders; Show external nodes is only a visibility filter. Change the
+analysis setting and Refresh to alter the included analysis scope.
+
 ## Limitations
 
 - Results depend on the installed MATLAB language provider's indexing and resolution quality.

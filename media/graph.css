@@ -18,6 +18,13 @@ body { display: flex; flex-direction: column; color: var(--vscode-foreground); b
 #search { width: min(260px, 25vw); }
 #depth { width: 52px; }
 #summary { height: 25px; padding: 4px 9px; color: var(--vscode-descriptionForeground); border-bottom: 1px solid var(--vscode-panel-border); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#external-policy { font-size: .9em; color: var(--vscode-descriptionForeground); }
+/* Keep failure status outside the SVG: it describes the latest attempt, not
+   the successful graph being exported. Explicit hidden wins over display:flex. */
+#analysis-status { flex-shrink: 0; display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 8px 10px; border-bottom: 1px solid var(--vscode-editorWarning-foreground, #cca700); background: var(--vscode-editor-background); }
+#analysis-status[hidden] { display: none; }
+#analysis-status-text { flex: 1; min-width: 180px; overflow-wrap: anywhere; }
+#analysis-status button { cursor: pointer; color: var(--vscode-button-secondaryForeground); background: var(--vscode-button-secondaryBackground); border: 1px solid var(--vscode-button-border, transparent); padding: 4px 7px; }
 /* The separator owns its own grid track, so it never covers graph hit targets. */
 main { --details-width: 280px; flex: 1; min-height: 0; min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) 6px var(--details-width); }
 #details-resizer { cursor: col-resize; touch-action: none; user-select: none; background: var(--vscode-panel-border, #555); }

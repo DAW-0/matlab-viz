@@ -15,6 +15,8 @@
   const isolated = document.getElementById("isolated");
   const problemsButton = document.getElementById("problems");
   const tooltip = document.getElementById("tooltip");
+  const analysisBanner = document.getElementById("analysis-status");
+  const analysisBannerText = document.getElementById("analysis-status-text");
   const NS = "http://www.w3.org/2000/svg";
   const geometry = globalThis.MatlabVizGeometry;
   const sizes = new Map();
@@ -39,6 +41,7 @@
   let suppressClick = false;
   let dragFrame;
   let pointerNodeId;
+  let analysisStatus;
   const initialState = vscode.getState();
 
   // Width is a view preference, not graph data: retain it across Refresh/new
@@ -162,7 +165,7 @@
       version: 1, geometryVersion: 1, graphKey,
       controls: { search: search.value, layout: layout.value, direction: direction.value,
         depth: Number(depth.value), external: external.checked, isolated: isolated.checked },
-      selectedId, detailSelection, positions: [...positions], transform: { ...transform }, viewportCustomized, detailsWidth
+      selectedId, detailSelection, positions: [...positions], transform: { ...transform }, viewportCustomized, detailsWidth, analysisStatus
     });
   }
 
@@ -181,6 +184,7 @@
 
   function restoreState(value) {
     if (!value || value.version !== 1 || value.graphKey !== graphKey) return false;
+    analysisStatus = validAnalysisStatus(value.analysisStatus);
     const controls = value.controls || {};
     if (typeof controls.search === "string") search.value = controls.search;
     if (["force", "hierarchical", "circle", "grid"].includes(controls.layout)) layout.value = controls.layout;
@@ -209,6 +213,35 @@
       || (selection.kind === "edge" && graph.edges.some((edge) => edge.id === selection.id))
       || selection.kind === "problems")) detailSelection = selection;
     return true;
+  }
+
+  function validAnalysisStatus(value) {
+    return value && ["failed", "cancelled"].includes(value.kind) && typeof value.message === "string"
+      && typeof value.occurredAt === "string" ? { kind: value.kind, message: value.message, occurredAt: value.occurredAt } : undefined;
+  }
+
+  function showAnalysisStatus(value) {
+    analysisStatus = validAnalysisStatus(value);
+    analysisBanner.hidden = !analysisStatus;
+    // textContent keeps MATLAB errors and source paths as plain text, even if
+    // their contents resemble markup. A failed attempt never changes graphKey.
+    analysisBannerText.textContent = analysisStatus
+      ? `Latest analysis ${analysisStatus.kind}. Showing the previous graph (generated ${graph.metadata.generatedAt || "time not recorded"}). ${analysisStatus.message}` : "";
+    saveStateSoon();
+  }
+
+  function graphTerms() {
+    if (graph.metadata.graphType === "call-hierarchy") return { items: "symbols", edges: "calls", heading: "Function call", outgoing: ["callee", "callees"], incoming: ["caller", "callers"], forward: "Callees", backward: "Callers" };
+    if (graph.metadata.graphType === "references") return { items: "symbols", edges: "reference links", heading: "Symbol reference", outgoing: ["referenced symbol", "referenced symbols"], incoming: ["referencing container", "referencing containers"], forward: "Referenced symbols", backward: "Referencing containers" };
+    return { items: "files", edges: "dependencies", heading: "File dependency", outgoing: ["dependency", "dependencies"], incoming: ["impacted file", "impacted files"], forward: "Dependencies", backward: "Impact" };
+  }
+
+  function updateExternalPolicy() {
+    const policy = graph.metadata.analysisIncludeExternal;
+    const label = document.getElementById("external-policy");
+    label.textContent = `Analysis externals: ${policy === true ? "enabled" : policy === false ? "disabled" : "not recorded (Refresh to record)"}`;
+    const boundary = graphTerms().items === "files" ? "the selected root" : "the open workspace folders";
+    label.title = `External means outside ${boundary}. This is the policy used for the displayed result, not the current setting. Change External analysis settings, then Refresh. Enabled does not guarantee that every external dependency can be resolved.`;
   }
 
   function restoreDetails() {
@@ -418,8 +451,7 @@
     for (const edge of data.edges) drawEdge(edge);
     for (const node of data.nodes) drawNode(node, query);
     saveStateSoon();
-    const itemLabel = graph.metadata.graphType === "files" || !graph.metadata.graphType ? "files" : "symbols";
-    const edgeLabel = graph.metadata.graphType === "references" ? "references" : graph.metadata.graphType === "call-hierarchy" ? "calls" : "dependencies";
+    const itemLabel = graphTerms().items, edgeLabel = graphTerms().edges;
     summary.textContent = `${data.nodes.length}/${graph.nodes.length} ${itemLabel} · ${data.edges.length}/${graph.edges.length} ${edgeLabel} · ${graph.products.length} product references · ${problemSummary()} · ${graph.metadata.mode} · ${graph.metadata.durationSeconds.toFixed(1)} s`;
   }
 
@@ -479,7 +511,12 @@
     }
     details.appendChild(list);
     const counts = document.createElement("p");
-    counts.textContent = `${graph.edges.filter((edge) => edge.source === node.id).length} dependencies · ${graph.edges.filter((edge) => edge.target === node.id).length} impacted files`;
+    // Count connected symbols/containers, not source occurrences: one reference
+    // edge may group many lines, and duplicate edges must not inflate neighbors.
+    const outgoing = new Set(graph.edges.filter((edge) => edge.source === node.id).map((edge) => edge.target)).size;
+    const incoming = new Set(graph.edges.filter((edge) => edge.target === node.id).map((edge) => edge.source)).size;
+    const terms = graphTerms();
+    counts.textContent = `${outgoing} ${terms.outgoing[outgoing === 1 ? 0 : 1]} · ${incoming} ${terms.incoming[incoming === 1 ? 0 : 1]}`;
     details.appendChild(counts);
     const button = document.createElement("button"); button.textContent = node.line === undefined ? "Open file" : "Open symbol"; button.addEventListener("click", () => vscode.postMessage({ type: "openFile", path: node.path, line: node.line, character: node.character })); details.appendChild(button);
   }
@@ -490,9 +527,12 @@
     saveStateSoon();
     const source = graph.nodes.find((node) => node.id === edge.source), target = graph.nodes.find((node) => node.id === edge.target);
     details.replaceChildren();
-    const heading = document.createElement("h2"); heading.textContent = "Dependency"; details.appendChild(heading);
+    const heading = document.createElement("h2"); heading.textContent = graphTerms().heading; details.appendChild(heading);
     const paragraph = document.createElement("p"); paragraph.textContent = `${source?.relativePath || edge.source} → ${target?.relativePath || edge.target}`; details.appendChild(paragraph);
-    const kind = document.createElement("p"); kind.textContent = edge.kind; details.appendChild(kind);
+    const kind = document.createElement("p"); kind.textContent = graph.metadata.graphType === "references"
+      ? "The source container contains references to the target symbol; one link can group multiple source occurrences."
+      : graph.metadata.graphType === "call-hierarchy" ? "The source function calls the target function." : "The source file depends on the target file."; details.appendChild(kind);
+    const relationship = document.createElement("p"); relationship.textContent = `Relationship type: ${edge.kind}`; details.appendChild(relationship);
     if (edge.details) { const value = document.createElement("p"); value.textContent = edge.details; details.appendChild(value); }
   }
 
@@ -616,6 +656,9 @@
   });
   problemsButton.addEventListener("click", showProblems);
   document.getElementById("export").addEventListener("click", () => vscode.postMessage({ type: "export" }));
+  document.getElementById("external-settings").addEventListener("click", () => vscode.postMessage({ type: "externalSettings" }));
+  document.getElementById("status-logs").addEventListener("click", () => vscode.postMessage({ type: "openLogs" }));
+  document.getElementById("status-refresh").addEventListener("click", () => document.getElementById("refresh").click());
   window.addEventListener("resize", () => {
     if (main.clientWidth <= COMPACT_WIDTH && resizingDetails) finishDetailsResize(resizingDetails);
     applyDetailsWidth(); resizeCanvasSoon();
@@ -630,10 +673,10 @@
       const sameGraph = graph && incomingKey === graphKey;
       graph = event.data.graph;
       graphKey = incomingKey;
-      if (sameGraph) { render(); return; }
+      if (sameGraph) { if (event.data.analysisStatus !== undefined) showAnalysisStatus(event.data.analysisStatus); render(); return; }
       positions = new Map(); sizes.clear(); selectedId = undefined;
       dragging = undefined; panning = undefined; pointerNodeId = undefined;
-      viewportCustomized = false; transform = { x: 0, y: 0, k: 1 };
+      viewportCustomized = false; transform = { x: 0, y: 0, k: 1 }; analysisStatus = undefined;
       resetDetails(); search.value = ""; direction.value = "all";
       external.checked = true; isolated.checked = true;
       const functionGraph = graph.metadata.graphType === "call-hierarchy";
@@ -641,15 +684,18 @@
       const onlyWarnings = graph.problems.length > 0 && graph.problems.every((problem) => problem.severity === "warning");
       problemsButton.hidden = graph.problems.length === 0;
       problemsButton.textContent = `${onlyWarnings ? "Warnings" : "Notices"} (${graph.problems.length})`;
-      direction.options[1].textContent = functionGraph ? "Callees" : "Dependencies";
-      direction.options[2].textContent = functionGraph ? "Callers" : "Impact";
+      direction.options[1].textContent = graphTerms().forward;
+      direction.options[2].textContent = graphTerms().backward;
+      updateExternalPolicy();
       search.placeholder = graph.metadata.graphType === "files" || !graph.metadata.graphType ? "Search files…" : "Search symbols…";
       layout.value = functionGraph ? "hierarchical" : event.data.defaultLayout || "force";
       const restored = restoreState(event.data.viewState ?? initialState);
+      showAnalysisStatus(event.data.analysisStatus !== undefined ? event.data.analysisStatus : analysisStatus);
       updateDepthControl();
       render(!restored); restoreDetails();
       if (!restored || !viewportCustomized) requestAnimationFrame(() => { if (!viewportCustomized) fit(); });
-    } else if (event.data.type === "requestExport") void exportVisual(event.data.format, event.data.scope, event.data.scale);
+    } else if (event.data.type === "analysisStatus" && graph) showAnalysisStatus(event.data.status);
+    else if (event.data.type === "requestExport") void exportVisual(event.data.format, event.data.scope, event.data.scale);
     else if (event.data.type === "showProblems") showProblems();
     else if (event.data.type === "restoreError") { summary.textContent = event.data.message; resetDetails(); }
   });

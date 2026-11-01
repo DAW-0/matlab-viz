@@ -29,7 +29,7 @@ npm run package
 The package script type-checks and bundles the extension before invoking `vsce`. Install the resulting VSIX with:
 
 ```powershell
-codium --install-extension .\matlab-viz-0.3.9.vsix
+codium --install-extension .\matlab-viz-0.3.10.vsix
 ```
 
 ## MATLAB-only validation
@@ -293,6 +293,34 @@ under `.tools/validation/0.3.9/` with the earlier launcher examples.
 No production MATLAB analysis code changes in this batch; its 13-test suite was
 last fully exercised in 0.3.8. Rerun it whenever the MATLAB helpers change.
 See [0.3.9 validation](VALIDATION_0.3.9.md) for the final observed results.
+
+## Retained-graph status and analysis-policy tests
+
+The 0.3.10 suite has 89 deterministic tests plus the opt-in real MATLAB runner
+test. Eight new tests cover retained failure/cancellation status, cache/model
+immutability, successful clearing, actual requested external policy, panel
+message delivery, settings navigation, same-graph restoration, malformed status,
+graph-specific relationship wording, and independent visibility/policy controls.
+
+The native `clarity` phase uses the existing four-file Project fixture as a
+folder. It runs actual MATLAB analysis, lowers Maximum Files to provoke an
+error, checks the preserved cache/view/banner, and retries through the banner
+with the error notification untouched. It changes Include External, verifies
+that the recorded policy changes only after successful analysis, checks the
+visibility filter does not run analysis, opens the actual settings UI, and
+exercises real call/reference commands and their headings/traversal labels.
+
+Use the restoration launcher with a fresh artifact root and `-Phases clarity`;
+set `MATLAB_VIZ_TEST_EXECUTABLE` first. The existing restart/Reload Window phases
+also provoke a missing-root error before saving their snapshots, verifying that
+the notice restores with the same detached view and clears after success.
+Condition-based UI waits are required: command completion intentionally does not
+wait for notification dismissal or for every webview message to paint.
+
+The visual phase seeds a graph cache before activation. Run it first in a fresh
+profile, or in its own launcher invocation; running it after another phase can
+leave a controller already holding that phase's cached graph. See
+[0.3.10 validation](VALIDATION_0.3.10.md) for final artifact directories and scope.
 
 ## Release checklist
 

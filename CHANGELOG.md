@@ -4,6 +4,19 @@ All notable changes to MATLAB Viz will be documented here.
 
 ## [Unreleased]
 
+## [0.3.10]
+
+### Added
+
+- Persistent previous-graph banner after a failed/cancelled attempt, with generation time, Refresh Displayed Graph, and Show Logs. Successful analysis clears the notice; failures do not replace graph data, cache, or Refresh target. The notice restores with the same open graph tab and is excluded from graph exports.
+- Recorded external-analysis policy in extension-generated graph metadata, explicit Show External Nodes visibility wording, and an External Analysis Settings action. Settings changes require Refresh; legacy policy is identified as unrecorded rather than guessed.
+- Controller, panel, and webview regressions plus native MATLAB failure/retry, settings-navigation, terminology, and restored-banner tests.
+
+### Fixed
+
+- File, call, and reference details use their actual relationship terminology and distinct-neighbor counts with singular/plural wording. Reference summaries count grouped reference links, not occurrences.
+- Sidebar counts use actual graph arrays rather than optional cached counts, and source paths are escaped for HTML display. Notices and status-bar relationships use consistent terminology.
+
 ## [0.3.9]
 
 ### Added

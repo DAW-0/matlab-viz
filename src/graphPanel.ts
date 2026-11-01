@@ -3,7 +3,7 @@ import * as path from "node:path";
 import * as vscode from "vscode";
 import { defaultLayout } from "./configuration";
 import { graphToCsv, graphToDot } from "./core/exporters";
-import type { DependencyGraph } from "./model";
+import type { DependencyGraph, GraphAnalysisStatus } from "./model";
 
 interface WebviewMessage {
   type: string;
@@ -38,6 +38,9 @@ export class GraphPanel implements vscode.Disposable {
   private unavailableMessage: string | undefined;
   private pendingExport: { type: "requestExport"; format: string; scope: string; scale: number } | undefined;
   private lastExportDirectory: vscode.Uri | undefined;
+  // Undefined lets a serializer restore its saved notice; null explicitly
+  // clears it after success. This state is deliberately absent from exports.
+  private analysisStatus: GraphAnalysisStatus | null | undefined;
 
   public constructor(
     private readonly extensionUri: vscode.Uri,
@@ -103,8 +106,15 @@ export class GraphPanel implements vscode.Disposable {
 
   /** Update the graph without moving or focusing an existing webview panel. */
   public update(graph: DependencyGraph): void {
+    this.analysisStatus = null;
     this.setGraph(graph);
     if (!this.panel) void this.show();
+  }
+
+  /** Report a failed/cancelled attempt without replacing or revealing the graph. */
+  public setAnalysisStatus(status: GraphAnalysisStatus): void {
+    this.analysisStatus = status;
+    this.postGraph();
   }
 
   /** Populate the cache without opening a new panel during activation. */
@@ -217,6 +227,7 @@ export class GraphPanel implements vscode.Disposable {
         type: "setGraph",
         graph: this.graph,
         defaultLayout: defaultLayout(),
+        analysisStatus: this.analysisStatus,
         viewState
       }).then((delivered) => {
         if (!delivered && this.panel === sentPanel && this.graph === sentGraph) {
@@ -225,6 +236,7 @@ export class GraphPanel implements vscode.Disposable {
         }
       });
     }
+    if (this.analysisStatus !== undefined) void this.panel.webview.postMessage({ type: "analysisStatus", status: this.analysisStatus });
     if (this.pendingExport) {
       const request = this.pendingExport;
       this.pendingExport = undefined;
@@ -253,6 +265,14 @@ export class GraphPanel implements vscode.Disposable {
         break;
       case "refresh":
         await this.refresh(message.depth);
+        break;
+      case "openLogs":
+        this.services.output?.show();
+        break;
+      case "externalSettings":
+        // Navigate only: changing settings and rerunning analysis remain
+        // explicit user actions, independent of the graph visibility filter.
+        await vscode.commands.executeCommand("workbench.action.openSettings", "@id:matlabViz.includeExternal");
         break;
       case "export":
         await this.exportGraph();
@@ -320,13 +340,19 @@ export class GraphPanel implements vscode.Disposable {
       <option value="impact">Impact</option>
     </select>
     <label id="depth-label"><span id="depth-text">Trace depth</span> <input id="depth" type="number" min="1" max="20" value="3"></label>
-    <label><input id="external" type="checkbox" checked> External</label>
-    <label><input id="isolated" type="checkbox" checked> Isolated</label>
+    <label title="Visibility only: show external nodes already present in this graph. It does not analyze additional files."><input id="external" type="checkbox" checked> Show external nodes</label>
+    <label><input id="isolated" type="checkbox" checked> Show isolated nodes</label>
+    <span id="external-policy" title="The analysis policy used to generate this result, not the current setting. Change the analysis setting, then Refresh.">Analysis externals: not recorded</span>
+    <button id="external-settings" title="Open Include External analysis setting. Changes take effect on Refresh; they do not just hide/show nodes.">External analysis settings</button>
     <button id="fit" title="Fit graph to view">Fit</button>
     <button id="refresh" title="Rerun analysis; function hierarchies use the displayed depth">Refresh</button>
     <button id="problems" title="Show MATLAB analysis notices" hidden>Notices</button>
     <button id="export" title="Export graph">Export</button>
   </header>
+  <section id="analysis-status" role="status" aria-live="polite" hidden>
+    <span id="analysis-status-text"></span>
+    <button id="status-refresh">Refresh displayed graph</button><button id="status-logs">Show logs</button>
+  </section>
   <div id="summary" role="status">No graph loaded</div>
   <main id="graph-main">
     <section id="canvas-wrap"><svg id="graph" role="img" aria-label="MATLAB dependency graph"></svg></section>
@@ -370,9 +396,10 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
   private render(): void {
     if (!this.view) return;
     const itemLabel = this.graph?.metadata.graphType === "files" || !this.graph?.metadata.graphType ? "files" : "symbols";
-    const edgeLabel = this.graph?.metadata.graphType === "references" ? "references" : this.graph?.metadata.graphType === "call-hierarchy" ? "calls" : "dependencies";
+    const edgeLabel = this.graph?.metadata.graphType === "references" ? "reference links" : this.graph?.metadata.graphType === "call-hierarchy" ? "calls" : "dependencies";
+    const escape = (value: string): string => value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;");
     const summary = this.graph
-      ? `<p><strong>${this.graph.metadata.nodeCount}</strong> ${itemLabel}<br><strong>${this.graph.metadata.edgeCount}</strong> ${edgeLabel}<br><strong>${this.graph.problems.length}</strong> problems</p><p class="muted">${this.graph.metadata.mode} analysis<br>${this.graph.metadata.root}</p>`
+      ? `<p><strong>${this.graph.nodes.length}</strong> ${itemLabel}<br><strong>${this.graph.edges.length}</strong> ${edgeLabel}<br><strong>${this.graph.problems.length}</strong> notices</p><p class="muted">${escape(this.graph.metadata.mode)} analysis<br>${escape(this.graph.metadata.root)}</p>`
       : "<p>No dependency graph has been generated in this session.</p>";
     this.view.webview.html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>
 body{font-family:var(--vscode-font-family);color:var(--vscode-foreground);padding:12px}button{display:block;width:100%;margin:8px 0;padding:7px;background:var(--vscode-button-background);color:var(--vscode-button-foreground);border:0}.muted{opacity:.7;word-break:break-all}
