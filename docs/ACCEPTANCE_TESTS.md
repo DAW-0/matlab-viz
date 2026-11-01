@@ -142,6 +142,35 @@ See the [Simulink scope guide](SIMULINK_VALIDATION.md) and
 - Cross-platform behavior still needs suitable hosts. Isolated VSCodium tests
   now cover actual notification retries and detached-window restoration on Windows.
 
+## Eighth batch: grouped graph views (0.3.12)
+
+Folder/package grouping is a display projection, not a new dependency backend.
+The retained 515-file/648-edge snapshot collapses to 93 leaf-folder groups:
+461 original cross-group links plus 187 internal links still total 648. There
+are fewer displayed arrows than 461 because arrows aggregate equal directed
+display endpoints. Expand All restores all 515 original nodes and 648 edges.
+Both modes pass all four native-editor layout/Fit checks; this snapshot falls
+back to folders in package mode, while a separate controlled package fixture
+tests nested/private ownership in the real webview.
+
+Projection/webview tests cover package-root analysis, duplicate package names,
+external/path-case identity, synthetic-ID collisions, same-file symbols,
+internal/self links, group-to-file edges, original-hop tracing, hidden-member
+search, per-mode positions, visibility/missing flags, and old/new state. Real
+editor save dialogs exercise all five formats: SVG/PNG keep grouping/counts;
+JSON/DOT/CSV retain the complete original graph. Full restart and actual MATLAB
+Refresh preserve grouping/mixed expansion; an intentional file-limit failure
+preserves the previous manually zoomed grouped view.
+
+The broader regression run exposed an intermittent lazy detached-tab focus
+race. A bounded activation retry now waits for the actual graph tab rather than
+assuming command completion means cross-window focus has settled. Grouping
+does not relocate tabs or create a duplicate graph. Failed activation is logged.
+
+The [grouping guide](GROUPING.md) documents flat leaf/package membership,
+count semantics, trace seeds, export scope, persistence and current limits.
+No new repository-wide MATLAB analysis or WEST model loading was required.
+
 ## Host checks after the first repair batch
 
 Automated tests cover the data and controller logic. The isolated real-editor

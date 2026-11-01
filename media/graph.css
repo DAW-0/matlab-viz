@@ -55,6 +55,10 @@ main[data-resizing="true"], main[data-resizing="true"] * { cursor: col-resize !i
 .node.missing rect { stroke: var(--vscode-errorForeground, #e33); stroke-width: 2.5; }
 .node.selected rect { stroke: var(--selected); stroke-width: 3; }
 .node.dim { opacity: .15; }
+.node.cluster rect { stroke-width: 2.5; rx: 12; }
+.node.cluster:focus-visible rect { stroke: var(--selected); stroke-width: 4; }
+.link-count { fill: var(--vscode-editor-foreground); font: bold 12px var(--vscode-font-family); paint-order: stroke; stroke: var(--vscode-editor-background); stroke-width: 4; stroke-linejoin: round; pointer-events: none; }
+#toolbar button:disabled { opacity: .5; cursor: not-allowed; }
 .node text { fill: var(--vscode-editor-foreground); font: 12px var(--vscode-font-family); pointer-events: none; }
 #tooltip { position: fixed; pointer-events: none; max-width: 460px; z-index: 10; padding: 6px 8px; background: var(--vscode-editorHoverWidget-background); color: var(--vscode-editorHoverWidget-foreground); border: 1px solid var(--vscode-editorHoverWidget-border); box-shadow: 0 2px 8px #0005; overflow-wrap: anywhere; }
 .empty { fill: var(--vscode-descriptionForeground); font-size: 16px; }

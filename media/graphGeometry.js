@@ -120,8 +120,25 @@
       const right = a.x + source.width / 2, top = a.y - source.height / 2;
       return { d: `M ${right} ${a.y} C ${right + 60} ${a.y} ${right + 60} ${top - 48} ${a.x} ${top - 7}`, bounds: { minX: a.x, maxX: right + 60, minY: top - 48, maxY: a.y } };
     }
+    if (edge.curve) {
+      const { control } = linkCountPoint(edge, positions);
+      const start = boundary(a, source, control, 2), end = boundary(b, target, control, 7);
+      return { d: `M ${start.x} ${start.y} Q ${control.x} ${control.y} ${end.x} ${end.y}`,
+        bounds: { minX: Math.min(start.x, end.x, control.x), maxX: Math.max(start.x, end.x, control.x), minY: Math.min(start.y, end.y, control.y), maxY: Math.max(start.y, end.y, control.y) } };
+    }
     const start = boundary(a, source, b, 2), end = boundary(b, target, a, 7);
     return { x1: start.x, y1: start.y, x2: end.x, y2: end.y };
+  }
+
+  function linkCountPoint(edge, positions, sizes) {
+    const a = positions.get(edge.source), b = positions.get(edge.target);
+    const distance = Math.hypot(b.x - a.x, b.y - a.y) || 1;
+    const normal = { x: -(b.y - a.y) / distance, y: (b.x - a.x) / distance };
+    const control = { x: (a.x + b.x) / 2 + normal.x * (edge.curve || 0), y: (a.y + b.y) / 2 + normal.y * (edge.curve || 0) };
+    const start = sizes && edge.curve ? boundary(a, sizes.get(edge.source), control, 2) : a;
+    const end = sizes && edge.curve ? boundary(b, sizes.get(edge.target), control, 7) : b;
+    return { x: (start.x + 2 * control.x + end.x) / 4 + normal.x * 12,
+      y: (start.y + 2 * control.y + end.y) / 4 + normal.y * 12 + 4, control };
   }
 
   function bounds(data, positions, sizes, padding = 32) {
@@ -150,22 +167,26 @@
     const box = options.scope === "viewport" ? { minX: 0, minY: 0, width: options.width, height: options.height } : bounds(data, positions, sizes);
     const color = { background: "#ffffff", text: "#222222", node: "#1976d2", edge: "#6b7280", selected: "#c05a00", external: "#a17700", missing: "#d32f2f", ...options.colors };
     const parts = [`<svg xmlns="http://www.w3.org/2000/svg" xml:space="preserve" width="${box.width}" height="${box.height}" viewBox="${box.minX} ${box.minY} ${box.width} ${box.height}" role="img">`,
-      `<title>MATLAB Viz dependency graph</title><desc>${data.nodes.length} nodes, ${data.edges.length} edges; ${xml(options.scope || "graph")} export. Search highlights do not exclude nodes.</desc>`,
+      `<title>MATLAB Viz dependency graph</title><desc>${data.nodes.length} nodes, ${data.edges.length} edges; ${xml(options.scope || "graph")} export. Search highlights do not exclude nodes.${data.original ? ` Grouped view of ${data.original.nodes.length} original nodes and ${data.original.edges.length} original links; ${data.internalEdges} links are internal to collapsed groups. Counts are graph links, not source occurrences. JSON/DOT/CSV retain the complete ungrouped graph.` : ""}</desc>`,
       `<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M 0 0 L 10 5 L 0 10 z" fill="${xml(color.edge)}"/></marker><marker id="arrow-selected" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M 0 0 L 10 5 L 0 10 z" fill="${xml(color.selected)}"/></marker></defs>`,
       `<rect x="${box.minX}" y="${box.minY}" width="${box.width}" height="${box.height}" fill="${xml(color.background)}"/>`];
     const view = options.transform;
     parts.push(options.scope === "viewport" ? `<g transform="translate(${view.x},${view.y}) scale(${view.k})">` : "<g>");
     for (const edge of data.edges) {
       const value = edgeGeometry(edge, positions, sizes); if (!value) continue;
-      const highlight = edge.source === options.selectedId || edge.target === options.selectedId;
+      const highlight = edge.source === options.selectedId || edge.target === options.selectedId || options.selectedIds?.has(edge.source) || options.selectedIds?.has(edge.target);
       const shape = value.d ? `<path d="${value.d}"` : `<line x1="${value.x1}" y1="${value.y1}" x2="${value.x2}" y2="${value.y2}"`;
       parts.push(`${shape} data-edge-id="${xml(edge.id)}" class="edge" fill="none" stroke="${xml(highlight ? color.selected : color.edge)}" stroke-width="${highlight ? 2.4 : 1.2}" marker-end="url(#${highlight ? "arrow-selected" : "arrow"})"/>`);
+      if (edge.count) {
+        const point = linkCountPoint(edge, positions, sizes);
+        parts.push(`<text class="link-count" x="${point.x}" y="${point.y}" text-anchor="middle" fill="${xml(color.text)}" font-family="${xml(options.fontFamily || "Arial, sans-serif")}" font-size="12" font-weight="bold" paint-order="stroke" stroke="${xml(color.background)}" stroke-width="4" stroke-linejoin="round">${edge.count}</text>`);
+      }
     }
     const query = (options.search || "").trim().toLowerCase();
     for (const node of data.nodes) {
       const point = positions.get(node.id), size = sizes.get(node.id);
-      const selected = node.id === options.selectedId;
-      const matches = !query || `${node.label} ${node.relativePath} ${node.path}`.toLowerCase().includes(query);
+      const selected = node.id === options.selectedId || options.selectedIds?.has(node.id);
+      const matches = !query || `${node.label} ${node.relativePath} ${node.path} ${node.searchText || ""}`.toLowerCase().includes(query);
       const stroke = selected ? color.selected : node.missing ? color.missing : node.external ? color.external : color.node;
       parts.push(`<g class="node" data-node-id="${xml(node.id)}" transform="translate(${point.x},${point.y})"${matches ? "" : ' opacity="0.15"'}><title>${xml(node.relativePath || node.label)}</title><rect x="${-size.width / 2}" y="${-size.height / 2}" width="${size.width}" height="${size.height}" rx="5" fill="${xml(color.background)}" stroke="${xml(stroke)}" stroke-width="${selected || node.missing ? 2.5 : 1.5}"${node.external ? ' stroke-dasharray="5 3"' : ""}/><text text-anchor="middle" fill="${xml(color.text)}" font-family="${xml(options.fontFamily || "Arial, sans-serif")}" font-size="12">`);
       size.lines.forEach((line, index) => parts.push(`<tspan x="0" y="${(index - (size.lines.length - 1) / 2) * 16 + 4}">${xml(line)}</tspan>`));
@@ -183,5 +204,5 @@
     return { width: w, height: h };
   }
 
-  return { labelBox, grid, circle, hierarchical, separate, boundary, edgeGeometry, bounds, fit, svgDocument, rasterSize };
+  return { labelBox, grid, circle, hierarchical, separate, boundary, edgeGeometry, linkCountPoint, bounds, fit, svgDocument, rasterSize };
 });

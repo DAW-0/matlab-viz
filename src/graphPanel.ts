@@ -79,8 +79,18 @@ export class GraphPanel implements vscode.Disposable {
           // A restored auxiliary group can be logically active while the
           // main window still owns DOM focus. Index-based commands otherwise
           // reopen the main window's editor instead of this graph tab.
-          await vscode.commands.executeCommand("workbench.action.focusActiveEditorGroup");
-          await vscode.commands.executeCommand("workbench.action.openEditorAtIndex", pending.index);
+          // Cross-window focus arrives asynchronously even after the focus
+          // command resolves. An immediate index command can still target the
+          // main window. Retry only the already-identified graph tab, up to ten
+          // attempts with 100ms settling intervals, stopping once it is active.
+          // Never create a duplicate panel or change its owning column.
+          for (let attempt = 0; attempt < 10; attempt++) {
+            await vscode.commands.executeCommand("workbench.action.focusActiveEditorGroup");
+            await vscode.commands.executeCommand("workbench.action.openEditorAtIndex", pending.index);
+            if (pending.tab.isActive) break;
+            await new Promise((resolve) => setTimeout(resolve, 100));
+          }
+          if (!pending.tab.isActive) this.services.output?.warn("Saved graph tab did not activate after bounded cross-window focus retries; the existing tab was retained.");
         }
         this.services.output?.appendLine(`[MATLAB Viz] Saved graph activation requested; active column=${vscode.window.tabGroups.activeTabGroup.viewColumn}.`);
         this.postGraph();
@@ -170,9 +180,9 @@ export class GraphPanel implements vscode.Disposable {
     }
     const format = await vscode.window.showQuickPick(
       [
-        { label: "JSON", description: "Complete graph model", extension: "json" },
-        { label: "Graphviz DOT", description: "Portable directed graph", extension: "dot" },
-        { label: "CSV", description: "Dependency edge table", extension: "csv" },
+        { label: "JSON", description: "Complete ungrouped graph model (all analyzed nodes/edges)", extension: "json" },
+        { label: "Graphviz DOT", description: "Complete ungrouped directed graph", extension: "dot" },
+        { label: "CSV", description: "Complete ungrouped dependency edge table", extension: "csv" },
         { label: "SVG", description: "Zoomable vector graph with full labels", extension: "svg", visual: true },
         { label: "PNG", description: "Raster graph with selectable resolution", extension: "png", visual: true }
       ],
@@ -183,7 +193,7 @@ export class GraphPanel implements vscode.Disposable {
     }
     if (format.visual) {
       const scope = await vscode.window.showQuickPick([
-        { label: "Filtered graph", description: "All nodes allowed by the current filters, including offscreen nodes", value: "graph" },
+        { label: "Filtered graph", description: "Current grouping and filters, including offscreen nodes; collapsed internal links are summarized", value: "graph" },
         { label: "Current viewport", description: "Crop to the current pan and zoom", value: "viewport" }
       ], { title: "Visual export framing", placeHolder: "Search highlights do not remove nodes; dependency/impact and visibility filters do." });
       if (!scope) return;
@@ -327,6 +337,7 @@ export class GraphPanel implements vscode.Disposable {
     const script = webview.asWebviewUri(vscode.Uri.joinPath(this.extensionUri, "media", "graph.js"));
     const style = webview.asWebviewUri(vscode.Uri.joinPath(this.extensionUri, "media", "graph.css"));
     const geometry = webview.asWebviewUri(vscode.Uri.joinPath(this.extensionUri, "media", "graphGeometry.js"));
+    const grouping = webview.asWebviewUri(vscode.Uri.joinPath(this.extensionUri, "media", "graphGrouping.js"));
     return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -343,6 +354,12 @@ export class GraphPanel implements vscode.Disposable {
       <option value="force">Force</option><option value="hierarchical">Hierarchical</option>
       <option value="circle">Circle</option><option value="grid">Grid</option>
     </select>
+    <select id="grouping" aria-label="Group nodes" title="View only: group by leaf folder or innermost MATLAB package; non-package code uses folders. No MATLAB analysis is run.">
+      <option value="none">No grouping</option><option value="folder">By folder</option><option value="package">By MATLAB package</option>
+    </select>
+    <button id="groups" title="List groups and expand/collapse individual groups" disabled>Groups</button>
+    <button id="collapse-groups" title="Collapse all groups" disabled>Collapse all</button>
+    <button id="expand-groups" title="Expand all groups" disabled>Expand all</button>
     <select id="direction" aria-label="Trace direction">
       <option value="all">Entire graph</option><option value="dependencies">Dependencies</option>
       <option value="impact">Impact</option>
@@ -369,6 +386,7 @@ export class GraphPanel implements vscode.Disposable {
   </main>
   <div id="tooltip" hidden></div>
   <script nonce="${token}" src="${geometry}"></script>
+  <script nonce="${token}" src="${grouping}"></script>
   <script nonce="${token}" src="${script}"></script>
 </body>
 </html>`;

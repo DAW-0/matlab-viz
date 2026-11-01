@@ -76,10 +76,12 @@ function webview(initialState?: unknown) {
       addEventListener: (name: string, listener: (event: any) => void) => documentEvents.set(name, listener) },
     window: { addEventListener: (name: string, listener: (event: any) => void) => events.set(name, listener) },
     ResizeObserver: class { constructor(callback: () => void) { resizeObservers.push(callback); } public observe() {} },
+    getComputedStyle: () => ({ fontFamily: "Arial, sans-serif", getPropertyValue: () => "" }),
     requestAnimationFrame: (callback: () => void) => { frames.push(callback); return frames.length; }
   };
   const realm = vm.createContext(context);
   vm.runInContext(readFileSync(path.resolve(__dirname, "../../media/graphGeometry.js"), "utf8"), realm);
+  vm.runInContext(readFileSync(path.resolve(__dirname, "../../media/graphGrouping.js"), "utf8"), realm);
   vm.runInContext(readFileSync(path.resolve(__dirname, "../../media/graph.js"), "utf8"), realm);
   function flush() { for (let count = 0; frames.length && count < 20; count++) frames.shift()!(); assert.equal(frames.length, 0); }
   function send(value: unknown, finish = true) { events.get("message")?.({ data: value }); if (finish) flush(); }
@@ -108,6 +110,145 @@ test("webview state preserves filters, selection, layout, positions, details, an
   assert.deepEqual(second.state().transform, expected.transform, "resize destroyed restored custom zoom");
   second.load();
   assert.deepEqual(second.state(), expected, "reposting an unchanged graph reset state");
+});
+
+function groupedFixture() {
+  const value = JSON.parse(JSON.stringify(graph));
+  value.nodes.forEach((node: any, index: number) => {
+    node.path = `/fixture/${index < 2 ? "src" : "lib"}/${node.label}`;
+    node.relativePath = `${index < 2 ? "src" : "lib"}/${node.label}`;
+  });
+  return value;
+}
+
+test("group controls collapse/expand individually, inspect original nodes, and preserve ungrouped positions", () => {
+  const view = webview(); view.load(groupedFixture());
+  const ungrouped = view.state().positions;
+  view.get("grouping").value = "folder"; view.get("grouping").trigger("change"); view.flush();
+  assert.equal(view.nodes().length, 2); assert.match(view.get("summary").textContent, /4\/4 files.*2\/2 dependencies.*2 collapsed groups.*1 internal/);
+  const src = view.nodes().find((node) => node.textContent.includes("src"))!;
+  src.trigger("click"); view.flush(); assert.match(view.get("details").textContent, /2\/2 files.*1 internal dependencies/);
+  view.get("details").children.find((node) => node.textContent === "Expand group")!.trigger("click"); view.flush();
+  assert.equal(view.nodes().length, 3);
+  view.get("groups").trigger("click"); view.flush();
+  view.get("details").children.find((node) => node.textContent.startsWith("Collapse: src"))!.trigger("click"); view.flush();
+  assert.equal(view.nodes().length, 2);
+  view.get("expand-groups").trigger("click"); view.flush(); assert.equal(view.nodes().length, 4);
+  view.get("collapse-groups").trigger("click"); view.flush(); assert.equal(view.nodes().length, 2);
+  view.nodes().find((node) => node.textContent.includes("src"))!.trigger("click"); view.flush();
+  view.get("details").children.find((node) => node.textContent === "Inspect: src/a.m")!.trigger("click"); view.flush();
+  assert.equal(view.state().selectedId, "a"); assert.equal(view.nodes().length, 3); assert.equal(view.get("details").children[0]?.textContent, "a.m");
+  view.get("grouping").value = "none"; view.get("grouping").trigger("change"); view.flush();
+  assert.deepEqual(view.state().positions, ungrouped);
+  assert.equal(view.get("groups").disabled, true); assert.equal(view.nodes().length, 4);
+});
+
+test("group tracing uses original file hops instead of aggregate shortcuts in both directions", () => {
+  const view = webview(), value = groupedFixture(); view.load(value);
+  // Keep an individual seed while collapsing its owner: a -> b (same group)
+  // -> c (other group). One original hop must not reveal c through the group.
+  view.nodes().find((node) => node.attributes["data-node-id"] === "a")!.trigger("click");
+  view.get("grouping").value = "folder"; view.get("grouping").trigger("change");
+  view.get("direction").value = "dependencies"; view.get("depth").value = "1"; view.get("direction").trigger("change"); view.flush();
+  assert.equal(view.nodes().length, 1); assert.match(view.get("summary").textContent, /2\/4 files.*1\/2 dependencies/);
+  assert.match(view.nodes()[0]!.textContent, /src/);
+  view.get("depth").value = "2"; view.get("depth").trigger("change"); view.flush();
+  assert.equal(view.nodes().length, 2); assert.match(view.get("summary").textContent, /3\/4 files.*2\/2 dependencies/);
+  // Selecting the collapsed lib group seeds c and the isolated member. Incoming
+  // depth one includes b but not a, rather than tracing two hops at once.
+  view.nodes().find((node) => node.textContent.includes("lib"))!.trigger("click");
+  view.get("direction").value = "impact"; view.get("depth").value = "1"; view.get("direction").trigger("change"); view.flush();
+  assert.match(view.get("summary").textContent, /3\/4 files.*1\/2 dependencies/);
+  assert.match(view.nodes().find((node) => node.textContent.includes("src"))!.textContent, /1\/2 files/);
+});
+
+test("grouped state restores selection, edge details, mixed expansion, positions, custom zoom and Refresh grouping", () => {
+  const first = webview(), value = groupedFixture(); first.load(value);
+  first.get("grouping").value = "folder"; first.get("grouping").trigger("change"); first.flush();
+  first.get("layout").value = "circle"; first.get("layout").trigger("change"); first.flush();
+  first.nodes().find((node) => node.textContent.includes("src"))!.trigger("dblclick"); first.flush();
+  first.get("graph").children[1]!.children.find((node) => node.attributes["data-link-count"])!.trigger("click"); first.flush();
+  first.get("graph").trigger("wheel", { deltaY: -100 }); first.flush();
+  const saved = first.state(), second = webview(saved); second.load(value);
+  assert.deepEqual(second.state(), saved); assert.match(second.get("details").textContent, /Grouped dependencies \(1\).*src\/b.m.*lib\/c.m/);
+  second.load({ ...value, metadata: { ...value.metadata, generatedAt: "refreshed" } });
+  assert.equal(second.get("grouping").value, "folder"); assert.equal(second.nodes().length, 3);
+  assert.equal(second.get("layout").value, "circle");
+  assert.deepEqual(second.state().expandedGroups, saved.expandedGroups);
+  assert.deepEqual(second.state().positions, saved.positions);
+  const third = webview(); third.load(value); third.get("grouping").value = "folder"; third.get("grouping").trigger("change");
+  third.nodes()[0]!.trigger("click"); third.flush();
+  const restored = webview(third.state()); restored.load(value);
+  assert.deepEqual(restored.state(), third.state()); assert.match(restored.get("details").textContent, /Tracing this group/);
+});
+
+test("groups search matches contained paths, keyboard expands, double click never opens a synthetic file", () => {
+  const view = webview(); view.load(groupedFixture());
+  view.get("grouping").value = "folder"; view.get("grouping").trigger("change");
+  view.get("search").value = "src/b.m"; view.get("search").trigger("input"); view.flush();
+  const src = view.nodes().find((node) => node.textContent.includes("src"))!;
+  assert.ok(!src.attributes.class!.includes("dim")); assert.ok(view.nodes().find((node) => node.textContent.includes("lib"))!.attributes.class!.includes("dim"));
+  assert.match(src.attributes["aria-label"]!, /Enter to expand/);
+  src.trigger("keydown", { key: "Enter" }); view.flush(); assert.equal(view.nodes().length, 3);
+  view.get("collapse-groups").trigger("click"); view.nodes()[0]!.trigger("dblclick"); view.flush();
+  assert.ok(!view.messages.some((message) => message.type === "openFile"));
+});
+
+test("grouped pointer capture drag retains DOM and updates aggregate arrows and counts without lag", () => {
+  const view = webview(); view.load(groupedFixture());
+  view.get("grouping").value = "folder"; view.get("grouping").trigger("change"); view.flush();
+  const node = view.nodes()[0]!, svg = view.get("graph"), world = svg.children[1]!;
+  const edge = world.children.find((node) => node.attributes["data-link-count"])!, before = edge.attributes.x1;
+  const label = world.children.find((node) => node.attributes.class === "link-count")!, oldX = label.attributes.x;
+  node.trigger("pointerdown", { clientX: 100, clientY: 100 });
+  for (let i = 0; i < 30; i++) svg.trigger("pointermove", { clientX: 200 + i * 20, clientY: 120 });
+  view.flush(); svg.trigger("pointerup"); view.flush();
+  assert.equal(view.nodes()[0], node); assert.notEqual(edge.attributes.x1, before); assert.notEqual(label.attributes.x, oldX);
+});
+
+test("stale/malformed group state cannot hide new files, inject positions or apply to another root", () => {
+  const first = webview(), value = groupedFixture(); first.load(value);
+  first.get("grouping").value = "folder"; first.get("grouping").trigger("change"); first.flush();
+  const state = first.state(); state.expandedGroups = ["absent", null]; state.groupPositions = [["folder", [["bad", { x: 1, y: 2 }], [state.positions[0][0], { x: Infinity, y: 2 }]]], null, "junk"];
+  const next = webview(state); next.load(value); assert.equal(next.nodes().length, 2);
+  assert.deepEqual(next.state().expandedGroups, []); assert.ok(!next.state().groupPositions.some((entry: any) => entry[1].some((point: any) => point[0] === "bad")));
+  next.load({ ...value, metadata: { ...value.metadata, root: "/other" } }); assert.equal(next.get("grouping").value, "none");
+  assert.equal(next.nodes().length, 4);
+});
+
+test("grouped call/reference graphs retain symbol terminology and real original relationship evidence", () => {
+  for (const [type, terms] of [["call-hierarchy", "calls"], ["references", "reference links"]]) {
+    const view = webview(), value = groupedFixture(); value.metadata.graphType = type;
+    value.edges[1].details = "lines 9, 10, 14, 16";
+    view.load(value); view.get("grouping").value = "folder"; view.get("grouping").trigger("change"); view.flush();
+    assert.match(view.get("summary").textContent, new RegExp(`4/4 symbols.*2/2 ${terms}`));
+    view.nodes()[0]!.trigger("click"); assert.match(view.get("details").textContent, /2\/2 symbols/);
+    view.get("graph").children[1]!.children.find((node) => node.attributes["data-link-count"])!.trigger("click");
+    assert.match(view.get("details").textContent, new RegExp(`Grouped ${terms}.*lines 9, 10, 14, 16`));
+  }
+});
+
+test("collapsed missing/external flags and visibility filters summarize the included original members", () => {
+  const view = webview(), value = groupedFixture(); value.nodes[0].missing = true;
+  value.nodes[2].external = true; value.nodes[3].external = true;
+  view.load(value); view.get("grouping").value = "folder"; view.get("grouping").trigger("change"); view.flush();
+  assert.match(view.nodes().find((node) => node.textContent.includes("src"))!.attributes.class!, /missing/);
+  assert.match(view.nodes().find((node) => node.textContent.includes("lib"))!.attributes.class!, /external/);
+  view.get("external").checked = false; view.get("external").trigger("change"); view.flush();
+  assert.equal(view.nodes().length, 1); assert.match(view.get("summary").textContent, /2\/4 files.*1\/2 dependencies/);
+  view.get("external").checked = true; view.get("isolated").checked = false; view.get("isolated").trigger("change"); view.flush();
+  assert.equal(view.nodes().length, 2); assert.match(view.nodes().find((node) => node.textContent.includes("lib"))!.textContent, /1\/2 files/);
+});
+
+test("webview SVG export uses the grouped filtered projection and original-member search highlights", () => {
+  const view = webview(); view.load(groupedFixture());
+  view.get("grouping").value = "folder"; view.get("grouping").trigger("change");
+  view.get("search").value = "src/a.m"; view.get("search").trigger("input"); view.flush();
+  view.send({ type: "requestExport", format: "svg", scope: "graph" });
+  const exported = view.messages.find((message) => message.type === "saveVisual");
+  assert.ok(exported); assert.equal(exported.nodes, 2); assert.equal(exported.edges, 1);
+  assert.match(exported.data, /2 original links; 1 links are internal/);
+  assert.match(exported.data, /class="link-count"/); assert.equal((exported.data.match(/opacity="0.15"/g) || []).length, 1);
 });
 
 test("serializer-supplied view state restores a selected edge and its details", () => {

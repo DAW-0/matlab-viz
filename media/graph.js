@@ -7,6 +7,12 @@
   const detailsResizer = document.getElementById("details-resizer");
   const search = document.getElementById("search");
   const layout = document.getElementById("layout");
+  const grouping = document.getElementById("grouping");
+  const groupingApi = globalThis.MatlabVizGrouping;
+  let groupIndex = { groups: new Map(), membership: new Map() };
+  let expandedGroups = new Set();
+  let positionSets = new Map();
+  let renderedData = { nodes: [], edges: [] };
   const direction = document.getElementById("direction");
   const depth = document.getElementById("depth");
   const depthLabel = document.getElementById("depth-label");
@@ -163,9 +169,11 @@
     if (!graph) return;
     vscode.setState({
       version: 1, geometryVersion: 1, graphKey,
-      controls: { search: search.value, layout: layout.value, direction: direction.value,
+      controls: { search: search.value, layout: layout.value, grouping: grouping.value || "none", direction: direction.value,
         depth: Number(depth.value), external: external.checked, isolated: isolated.checked },
-      selectedId, detailSelection, positions: [...positions], transform: { ...transform }, viewportCustomized, detailsWidth, analysisStatus
+      selectedId, detailSelection, positions: [...positions], expandedGroups: [...expandedGroups],
+      groupPositions: [...positionSets].map(([mode, points]) => [mode, [...points]]),
+      transform: { ...transform }, viewportCustomized, detailsWidth, analysisStatus
     });
   }
 
@@ -188,11 +196,14 @@
     const controls = value.controls || {};
     if (typeof controls.search === "string") search.value = controls.search;
     if (["force", "hierarchical", "circle", "grid"].includes(controls.layout)) layout.value = controls.layout;
+    grouping.value = ["folder", "package"].includes(controls.grouping) ? controls.grouping : "none";
+    rebuildGroups();
+    expandedGroups = new Set(Array.isArray(value.expandedGroups) ? value.expandedGroups.filter((id) => groupIndex.groups.has(id)) : []);
     if (["all", "dependencies", "impact"].includes(controls.direction)) direction.value = controls.direction;
     if (Number.isInteger(controls.depth) && controls.depth >= 1 && controls.depth <= 20) depth.value = String(controls.depth);
     if (typeof controls.external === "boolean") external.checked = controls.external;
     if (typeof controls.isolated === "boolean") isolated.checked = controls.isolated;
-    const ids = new Set(graph.nodes.map((node) => node.id));
+    const ids = new Set([...graph.nodes.map((node) => node.id), ...groupIndex.groups.keys()]);
     selectedId = ids.has(value.selectedId) ? value.selectedId : undefined;
     if (!selectedId) direction.value = "all";
     if (value.geometryVersion === 1 && Array.isArray(value.positions)) {
@@ -203,6 +214,17 @@
         }
       }
     }
+    // Each grouping mode owns positions, so toggling grouping does not discard
+    // the manually arranged ungrouped graph. Validate stored coordinates/IDs.
+    if (value.geometryVersion === 1 && Array.isArray(value.groupPositions)) {
+      for (const entry of value.groupPositions) {
+        if (!Array.isArray(entry) || !["none", "folder", "package"].includes(entry[0]) || !Array.isArray(entry[1])) continue;
+        const valid = new Set([...graph.nodes.map((node) => node.id), ...groupingApi.index(graph, entry[0]).groups.keys()]);
+        positionSets.set(entry[0], new Map(entry[1].filter((point) => Array.isArray(point) && valid.has(point[0])
+          && point[1] && Number.isFinite(point[1].x) && Number.isFinite(point[1].y))));
+      }
+    }
+    positionSets.set(grouping.value, positions);
     const view = value.transform;
     if (value.geometryVersion === 1 && view && Number.isFinite(view.x) && Number.isFinite(view.y) && Number.isFinite(view.k) && view.k > 0 && view.k <= 1e6) {
       transform = { x: view.x, y: view.y, k: view.k };
@@ -210,8 +232,9 @@
     }
     const selection = value.detailSelection;
     if (selection && ((selection.kind === "node" && ids.has(selection.id))
-      || (selection.kind === "edge" && graph.edges.some((edge) => edge.id === selection.id))
-      || selection.kind === "problems")) detailSelection = selection;
+      || (selection.kind === "edge" && currentGraph().edges.some((edge) => edge.id === selection.id))
+      || (selection.kind === "group" && groupIndex.groups.has(selection.id))
+      || selection.kind === "groups" || selection.kind === "problems")) detailSelection = selection;
     return true;
   }
 
@@ -246,8 +269,13 @@
 
   function restoreDetails() {
     if (detailSelection?.kind === "node") showNode(graph.nodes.find((node) => node.id === detailSelection.id));
-    else if (detailSelection?.kind === "edge") showEdge(graph.edges.find((edge) => edge.id === detailSelection.id));
+    else if (detailSelection?.kind === "edge") {
+      const edge = renderedData.edges.find((edge) => edge.id === detailSelection.id) || graph.edges.find((edge) => edge.id === detailSelection.id);
+      if (edge) showEdge(edge); else resetDetails();
+    }
     else if (detailSelection?.kind === "problems") showProblems();
+    else if (detailSelection?.kind === "group") showGroup(groupIndex.groups.get(detailSelection.id));
+    else if (detailSelection?.kind === "groups") showGroups();
   }
 
   function element(name, attributes = {}) {
@@ -257,8 +285,9 @@
   }
 
   function nodeSize(node) {
-    if (!sizes.has(node.id)) sizes.set(node.id, geometry.labelBox(node.relativePath || node.label,
-      labelContext ? (value) => labelContext.measureText(value).width : undefined));
+    const label = node.relativePath || node.label;
+    if (!sizes.has(node.id) || sizes.get(node.id).label !== label) sizes.set(node.id, { ...geometry.labelBox(label,
+      labelContext ? (value) => labelContext.measureText(value).width : undefined), label });
     return sizes.get(node.id);
   }
 
@@ -277,10 +306,79 @@
       const traced = trace(selectedId, direction.value, Number(depth.value) || 3);
       allowed = new Set([...allowed].filter((id) => traced.has(id)));
     }
-    return {
+    const data = {
       nodes: graph.nodes.filter((node) => allowed.has(node.id)),
       edges: graph.edges.filter((edge) => allowed.has(edge.source) && allowed.has(edge.target))
     };
+    return groupingApi.project(data, groupIndex, expandedGroups, graphTerms().items);
+  }
+
+  function rebuildGroups() {
+    groupIndex = groupingApi.index(graph, grouping.value);
+    for (const id of ["groups", "collapse-groups", "expand-groups"]) document.getElementById(id).disabled = !groupIndex.groups.size;
+  }
+
+  function isSelected(id) {
+    if (!selectedId) return false;
+    if (id === selectedId) return true;
+    const owner = groupIndex.membership.get(selectedId);
+    if (owner === id && !expandedGroups.has(id)) return true;
+    return groupIndex.membership.get(id) === selectedId;
+  }
+
+  function findNode(id) {
+    return renderedData.nodes.find((node) => node.id === id) || graph.nodes.find((node) => node.id === id)
+      || groupIndex.groups.get(id);
+  }
+
+  function openNode(node) {
+    if (groupIndex.groups.has(node.id)) toggleGroup(node.id);
+    else vscode.postMessage({ type: "openFile", path: node.path, line: node.line, character: node.character });
+  }
+
+  function toggleGroup(id) {
+    if (!groupIndex.groups.has(id)) return;
+    if (expandedGroups.has(id)) expandedGroups.delete(id); else expandedGroups.add(id);
+    pointerNodeId = undefined; hideTooltip(); render(true); fit(); restoreDetails();
+  }
+
+  function showGroups() {
+    detailSelection = { kind: "groups" }; details.replaceChildren();
+    const heading = document.createElement("h2"); heading.textContent = `Groups (${groupIndex.groups.size})`; details.appendChild(heading);
+    const explanation = document.createElement("p"); explanation.textContent = "One group per leaf folder or innermost MATLAB package. Non-package code uses folders. Expanding reveals the original nodes; grouping does not change the analysis."; details.appendChild(explanation);
+    for (const group of [...groupIndex.groups.values()].sort((a, b) => a.label.localeCompare(b.label))) {
+      const button = document.createElement("button"); button.textContent = `${expandedGroups.has(group.id) ? "Collapse" : "Expand"}: ${group.label} (${group.members.length} ${graphTerms().items})`;
+      button.setAttribute("aria-expanded", String(expandedGroups.has(group.id)));
+      button.addEventListener("click", () => toggleGroup(group.id)); details.appendChild(button);
+    }
+    saveStateSoon();
+  }
+
+  function showGroup(group) {
+    if (!group) return;
+    detailSelection = { kind: "group", id: group.id }; details.replaceChildren();
+    const data = currentGraph(), visible = new Set((data.original || data).nodes.map((node) => node.id));
+    const members = group.members.filter((node) => visible.has(node.id)), ids = new Set(members.map((node) => node.id));
+    const internal = (data.original || data).edges.filter((edge) => ids.has(edge.source) && ids.has(edge.target)).length;
+    const heading = document.createElement("h2"); heading.textContent = group.label; details.appendChild(heading);
+    const text = document.createElement("p"); text.textContent = `${group.type} group: ${members.length}/${group.members.length} ${graphTerms().items} currently included; ${internal} internal ${graphTerms().edges}. Tracing this group starts at every member and follows original links. Search only highlights; data exports remain ungrouped.`; details.appendChild(text);
+    const flags = document.createElement("p"); flags.textContent = `${members.filter((node) => node.external).length} external; ${members.filter((node) => node.missing).length} missing. Location: ${group.location}`; details.appendChild(flags);
+    const button = document.createElement("button"); button.textContent = expandedGroups.has(group.id) ? "Collapse group" : "Expand group";
+    button.setAttribute("aria-expanded", String(expandedGroups.has(group.id)));
+    button.addEventListener("click", () => toggleGroup(group.id)); details.appendChild(button);
+    for (const node of members) {
+      const inspect = document.createElement("button"); inspect.textContent = `Inspect: ${node.relativePath || node.label}`;
+      inspect.addEventListener("click", () => {
+        expandedGroups.add(group.id); selectedId = node.id; pointerNodeId = undefined;
+        render(true); fit(); showNode(node);
+      }); details.appendChild(inspect);
+    }
+    saveStateSoon();
+  }
+
+  function placeCount(label, edge) {
+    const a = positions.get(edge.source), b = positions.get(edge.target);
+    if (a && b) { const point = geometry.linkCountPoint(edge, positions, sizes); label.setAttribute("x", point.x); label.setAttribute("y", point.y); }
   }
 
   function trace(start, mode, maximumDepth) {
@@ -291,10 +389,13 @@
       if (!adjacency.has(from)) adjacency.set(from, []);
       adjacency.get(from).push(to);
     }
-    const found = new Set([start]);
-    const queue = [{ id: start, depth: 0 }];
-    while (queue.length) {
-      const item = queue.shift();
+    // Trace the original relationships, not aggregate links: crossing a
+    // collapsed cluster must not shortcut multiple file-level dependency hops.
+    const seeds = groupIndex.groups.get(start)?.members.map((node) => node.id) || [start];
+    const found = new Set(seeds);
+    const queue = seeds.map((id) => ({ id, depth: 0 }));
+    for (let head = 0; head < queue.length; head++) {
+      const item = queue[head];
       if (item.depth >= maximumDepth) continue;
       for (const next of adjacency.get(item.id) || []) {
         if (!found.has(next)) {
@@ -434,6 +535,7 @@
     while (svg.firstChild) svg.removeChild(svg.firstChild);
     nodeElements.clear(); edgeElements.clear();
     const data = currentGraph();
+    renderedData = data;
     data.nodes.forEach(nodeSize);
     if (reposition || data.nodes.some((node) => !positions.has(node.id))) calculateLayout(layout.value);
     const defs = element("defs");
@@ -452,25 +554,33 @@
     for (const node of data.nodes) drawNode(node, query);
     saveStateSoon();
     const itemLabel = graphTerms().items, edgeLabel = graphTerms().edges;
-    summary.textContent = `${data.nodes.length}/${graph.nodes.length} ${itemLabel} · ${data.edges.length}/${graph.edges.length} ${edgeLabel} · ${graph.products.length} product references · ${problemSummary()} · ${graph.metadata.mode} · ${graph.metadata.durationSeconds.toFixed(1)} s`;
+    const original = data.original || data;
+    const groupSummary = groupIndex.groups.size ? ` · ${data.nodes.filter((node) => node.group).length} collapsed groups · ${data.edges.length} displayed links · ${data.internalEdges} internal ${edgeLabel}` : "";
+    summary.textContent = `${original.nodes.length}/${graph.nodes.length} ${itemLabel} · ${original.edges.length}/${graph.edges.length} ${edgeLabel}${groupSummary} · ${graph.products.length} product references · ${problemSummary()} · ${graph.metadata.mode} · ${graph.metadata.durationSeconds.toFixed(1)} s`;
+    summary.title = summary.textContent;
+    if (detailSelection?.kind === "group") showGroup(groupIndex.groups.get(detailSelection.id));
   }
 
   function drawEdge(edge) {
     const value = geometry.edgeGeometry(edge, positions, sizes);
     if (!value) return;
-    const line = element(value.d ? "path" : "line", { class: `edge${selectedId && (edge.source === selectedId || edge.target === selectedId) ? " highlight" : ""}`, "data-edge-id": edge.id });
+    const line = element(value.d ? "path" : "line", { class: `edge${isSelected(edge.source) || isSelected(edge.target) ? " highlight" : ""}`, "data-edge-id": edge.id, ...(edge.count ? { "data-link-count": edge.count } : {}) });
     for (const [name, item] of Object.entries(value)) if (name !== "bounds") line.setAttribute(name, item);
     edgeElements.set(edge.id, line);
     line.addEventListener("click", (event) => { event.stopPropagation(); showEdge(edge); });
-    line.addEventListener("mouseenter", (event) => showTooltip(event, edge.kind));
+    line.addEventListener("mouseenter", (event) => showTooltip(event, edge.count ? `${edge.count} original ${graphTerms().edges}` : edge.kind));
     line.addEventListener("mouseleave", hideTooltip);
     world.appendChild(line);
+    if (edge.count) {
+      const label = element("text", { class: "link-count", "data-count-for": edge.id, "text-anchor": "middle" });
+      label.textContent = String(edge.count); placeCount(label, edge); world.appendChild(label);
+    }
   }
 
   function drawNode(node, query) {
     const point = positions.get(node.id), size = nodeSize(node);
-    const matches = !query || `${node.label} ${node.relativePath} ${node.path}`.toLowerCase().includes(query);
-    const group = element("g", { transform: `translate(${point.x},${point.y})`, "data-node-id": node.id, class: `node${node.external ? " external" : ""}${node.missing ? " missing" : ""}${node.id === selectedId ? " selected" : ""}${matches ? "" : " dim"}` });
+    const matches = !query || `${node.label} ${node.relativePath} ${node.path} ${node.searchText || ""}`.toLowerCase().includes(query);
+    const group = element("g", { transform: `translate(${point.x},${point.y})`, "data-node-id": node.id, ...(node.group ? { "data-group-id": node.id, tabindex: 0, role: "button", "aria-label": `${node.relativePath}; Enter to expand` } : {}), class: `node${node.group ? " cluster" : ""}${node.external ? " external" : ""}${node.missing ? " missing" : ""}${isSelected(node.id) ? " selected" : ""}${matches ? "" : " dim"}` });
     nodeElements.set(node.id, group);
     group.appendChild(element("rect", { x: -size.width / 2, y: -size.height / 2, width: size.width, height: size.height }));
     const text = element("text", { "text-anchor": "middle", "xml:space": "preserve" });
@@ -480,7 +590,10 @@
     });
     group.appendChild(text);
     group.addEventListener("click", (event) => { event.stopPropagation(); if (suppressClick) { suppressClick = false; return; } selectedId = node.id; showNode(node); render(direction.value !== "all"); });
-    group.addEventListener("dblclick", (event) => { event.stopPropagation(); vscode.postMessage({ type: "openFile", path: node.path, line: node.line, character: node.character }); });
+    group.addEventListener("dblclick", (event) => { event.stopPropagation(); openNode(node); });
+    if (node.group) group.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") { event.preventDefault(); event.stopPropagation(); toggleGroup(node.id); }
+    });
     group.addEventListener("pointerdown", (event) => {
       if (event.button !== 0) return;
       event.stopPropagation(); suppressClick = false;
@@ -488,13 +601,14 @@
       dragging = { id: node.id, start: screenToWorld(event.clientX, event.clientY), x: event.clientX, y: event.clientY };
       svg.setPointerCapture(event.pointerId);
     });
-    group.addEventListener("mouseenter", (event) => showTooltip(event, `${node.kind}\n${node.path}`));
+    group.addEventListener("mouseenter", (event) => showTooltip(event, node.group ? `${node.relativePath}\n${node.internalEdges.length} internal ${graphTerms().edges}; double-click or Enter to expand` : `${node.kind}\n${node.path}`));
     group.addEventListener("mouseleave", hideTooltip);
     world.appendChild(group);
   }
 
   function showNode(node) {
     if (!node) return;
+    if (node.group || groupIndex.groups.has(node.id)) { showGroup(node.group || groupIndex.groups.get(node.id)); return; }
     detailSelection = { kind: "node", id: node.id };
     saveStateSoon();
     details.replaceChildren();
@@ -525,9 +639,19 @@
     if (!edge) return;
     detailSelection = { kind: "edge", id: edge.id };
     saveStateSoon();
-    const source = graph.nodes.find((node) => node.id === edge.source), target = graph.nodes.find((node) => node.id === edge.target);
+    const source = renderedData.nodes.find((node) => node.id === edge.source), target = renderedData.nodes.find((node) => node.id === edge.target);
     details.replaceChildren();
     const heading = document.createElement("h2"); heading.textContent = graphTerms().heading; details.appendChild(heading);
+    if (edge.originalEdges) {
+      heading.textContent = `Grouped ${graphTerms().edges} (${edge.count})`;
+      const explanation = document.createElement("p"); explanation.textContent = `${source?.label} → ${target?.label}. Counts are original graph links, not source occurrences. Internal links are summarized inside collapsed groups.`; details.appendChild(explanation);
+      // Explicit originals make mixed relationship types and direction auditable.
+      for (const original of edge.originalEdges) {
+        const from = graph.nodes.find((node) => node.id === original.source), to = graph.nodes.find((node) => node.id === original.target);
+        const row = document.createElement("p"); row.textContent = `${from?.relativePath || original.source} → ${to?.relativePath || original.target}: ${original.kind}${original.details ? ` (${original.details})` : ""}`; details.appendChild(row);
+      }
+      return;
+    }
     const paragraph = document.createElement("p"); paragraph.textContent = `${source?.relativePath || edge.source} → ${target?.relativePath || edge.target}`; details.appendChild(paragraph);
     const kind = document.createElement("p"); kind.textContent = graph.metadata.graphType === "references"
       ? "The source container contains references to the target symbol; one link can group multiple source occurrences."
@@ -557,7 +681,8 @@
       const theme = getComputedStyle(document.documentElement);
       const css = (name, fallback) => theme.getPropertyValue(name).trim() || fallback;
       const result = geometry.svgDocument(data, positions, sizes, {
-        scope, transform, width: svg.clientWidth, height: svg.clientHeight, selectedId, search: search.value, fontFamily,
+        scope, transform, width: svg.clientWidth, height: svg.clientHeight, selectedId,
+        selectedIds: new Set(data.nodes.filter((node) => isSelected(node.id)).map((node) => node.id)), search: search.value, fontFamily,
         colors: { background: css("--vscode-editor-background", "#fff"), text: css("--vscode-editor-foreground", "#222"),
           node: css("--vscode-charts-blue", "#1976d2"), edge: css("--vscode-descriptionForeground", "#888"),
           selected: css("--vscode-focusBorder", "#c05a00"), external: css("--vscode-charts-yellow", "#a17700"), missing: css("--vscode-errorForeground", "#d32f2f") }
@@ -593,10 +718,14 @@
     if (!dragging) return;
     const point = positions.get(dragging.id);
     nodeElements.get(dragging.id)?.setAttribute("transform", `translate(${point.x},${point.y})`);
-    for (const edge of graph.edges) {
+    for (const edge of renderedData.edges) {
       if (edge.source !== dragging.id && edge.target !== dragging.id) continue;
       const line = edgeElements.get(edge.id), value = geometry.edgeGeometry(edge, positions, sizes);
       if (line && value) for (const [name, item] of Object.entries(value)) if (name !== "bounds") line.setAttribute(name, item);
+      if (edge.count) {
+        const label = [...world.children].find((child) => child.getAttribute("data-count-for") === edge.id);
+        if (label) placeCount(label, edge);
+      }
     }
     saveStateSoon();
   }
@@ -636,18 +765,31 @@
   });
   svg.addEventListener("click", (event) => {
     if (suppressClick) { suppressClick = false; return; }
-    if (pointerNodeId) { const node = graph.nodes.find((item) => item.id === pointerNodeId); selectedId = pointerNodeId; showNode(node); render(direction.value !== "all"); return; }
+    if (pointerNodeId) { const node = findNode(pointerNodeId); selectedId = pointerNodeId; showNode(node); render(direction.value !== "all"); return; }
     if (event.target === svg || event.target === world) { const traced = direction.value !== "all"; selectedId = undefined; direction.value = "all"; resetDetails(); updateDepthControl(); render(traced); }
   });
   svg.addEventListener("dblclick", (event) => {
-    const node = graph?.nodes.find((item) => item.id === pointerNodeId);
-    if (node && !suppressClick) { event.stopPropagation(); vscode.postMessage({ type: "openFile", path: node.path, line: node.line, character: node.character }); }
+    const node = graph && findNode(pointerNodeId);
+    if (node && !suppressClick) { event.stopPropagation(); openNode(node); }
   });
   svg.addEventListener("wheel", (event) => { event.preventDefault(); viewportCustomized = true; const rect = svg.getBoundingClientRect(); const x = event.clientX - rect.left, y = event.clientY - rect.top; const next = Math.max(1e-12, Math.min(8, transform.k * Math.exp(Math.max(-20, Math.min(20, -event.deltaY * .001))))); transform.x = x - ((x - transform.x) / transform.k) * next; transform.y = y - ((y - transform.y) / transform.k) * next; transform.k = next; updateTransform(); }, { passive: false });
   search.addEventListener("input", () => render());
   layout.addEventListener("change", () => { calculateLayout(layout.value); render(); fit(); });
+  grouping.addEventListener("change", () => {
+    // The old map is already retained in positionSets. Mode changes start
+    // collapsed; repeated modes reuse positions without touching source data.
+    positions = positionSets.get(grouping.value) || new Map(); positionSets.set(grouping.value, positions);
+    expandedGroups = new Set(); rebuildGroups();
+    if (selectedId && !graph.nodes.some((node) => node.id === selectedId)) { selectedId = undefined; direction.value = "all"; }
+    resetDetails(); pointerNodeId = undefined; updateDepthControl(); render(); fit();
+  });
+  document.getElementById("groups").addEventListener("click", showGroups);
+  for (const action of ["collapse", "expand"]) document.getElementById(`${action}-groups`).addEventListener("click", () => {
+    expandedGroups = action === "expand" ? new Set(groupIndex.groups.keys()) : new Set();
+    pointerNodeId = undefined; render(true); fit(); restoreDetails();
+  });
   direction.addEventListener("change", () => { updateDepthControl(); render(true); fit(); });
-  for (const control of [depth, external, isolated]) control.addEventListener("change", () => { render(true); fit(); });
+  for (const control of [depth, external, isolated]) control.addEventListener("change", () => { render(true); fit(); restoreDetails(); });
   document.getElementById("fit").addEventListener("click", fit);
   document.getElementById("refresh").addEventListener("click", () => {
     const message = { type: "refresh" };
@@ -671,10 +813,21 @@
       if (!graph && event.data.viewState) { restoreDetailsWidth(event.data.viewState); applyDetailsWidth(); }
       const incomingKey = JSON.stringify(event.data.graph.metadata);
       const sameGraph = graph && incomingKey === graphKey;
+      const previousLayout = layout.value;
+      const keepGrouping = graph && graph.metadata.root === event.data.graph.metadata.root
+        && graph.metadata.graphType === event.data.graph.metadata.graphType;
       graph = event.data.graph;
       graphKey = incomingKey;
       if (sameGraph) { if (event.data.analysisStatus !== undefined) showAnalysisStatus(event.data.analysisStatus); render(); return; }
-      positions = new Map(); sizes.clear(); selectedId = undefined;
+      if (!keepGrouping) { grouping.value = "none"; expandedGroups = new Set(); positionSets = new Map(); }
+      rebuildGroups(); expandedGroups = new Set([...expandedGroups].filter((id) => groupIndex.groups.has(id)));
+      // A Refresh may remove many nodes. Prune all mode maps before saving state.
+      for (const [mode, points] of positionSets) {
+        const valid = new Set([...graph.nodes.map((node) => node.id), ...groupingApi.index(graph, mode).groups.keys()]);
+        for (const id of points.keys()) if (!valid.has(id)) points.delete(id);
+      }
+      positions = positionSets.get(grouping.value) || new Map(); positionSets.set(grouping.value, positions);
+      sizes.clear(); selectedId = undefined;
       dragging = undefined; panning = undefined; pointerNodeId = undefined;
       viewportCustomized = false; transform = { x: 0, y: 0, k: 1 }; analysisStatus = undefined;
       resetDetails(); search.value = ""; direction.value = "all";
@@ -688,11 +841,11 @@
       direction.options[2].textContent = graphTerms().backward;
       updateExternalPolicy();
       search.placeholder = graph.metadata.graphType === "files" || !graph.metadata.graphType ? "Search files…" : "Search symbols…";
-      layout.value = functionGraph ? "hierarchical" : event.data.defaultLayout || "force";
+      layout.value = keepGrouping ? previousLayout : functionGraph ? "hierarchical" : event.data.defaultLayout || "force";
       const restored = restoreState(event.data.viewState ?? initialState);
       showAnalysisStatus(event.data.analysisStatus !== undefined ? event.data.analysisStatus : analysisStatus);
       updateDepthControl();
-      render(!restored); restoreDetails();
+      render(!restored && !keepGrouping); restoreDetails();
       if (!restored || !viewportCustomized) requestAnimationFrame(() => { if (!viewportCustomized) fit(); });
     } else if (event.data.type === "analysisStatus" && graph) showAnalysisStatus(event.data.status);
     else if (event.data.type === "requestExport") void exportVisual(event.data.format, event.data.scope, event.data.scale);

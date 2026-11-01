@@ -4,6 +4,19 @@ All notable changes to MATLAB Viz will be documented here.
 
 ## [Unreleased]
 
+## [0.3.12]
+
+### Fixed
+
+- Lazy detached graph tabs retry activation while cross-window focus settles, instead of silently targeting the main window's source editor. Retries remain bounded, preserve the existing owning group, and log an unsuccessful activation.
+
+### Added
+
+- View-only leaf-folder and innermost MATLAB-package groups for file, call, and reference graphs. Collapsed summary nodes show included/total membership, internal relationship counts, and external/missing summaries. Ordinary non-package code falls back to folder grouping.
+- Directed aggregate arrows with original-link counts and auditable original relationship details. Original-graph tracing avoids collapsed-group shortcuts; hidden members still participate in search highlights.
+- Individual keyboard/detail-panel expansion, a Groups browser, Collapse All/Expand All, per-mode positions, and restoration of grouping/mixed expansion across Refresh and editor restart. SVG/PNG reflect the grouped view; data exports retain the complete ungrouped model with no schema change.
+- Pure projection tests, 5,000-node conservation checks, grouped webview/pointer/restoration tests, and native-editor grouping/layout/export/restart/real-MATLAB Refresh/error checks.
+
 ## [0.3.11]
 
 ### Fixed

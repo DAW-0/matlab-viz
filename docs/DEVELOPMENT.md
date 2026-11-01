@@ -362,6 +362,35 @@ Normal editor settings, user projects, and WEST model files are not changed.
 The separate full renderer/restoration suite remains required when editor UI or
 navigation code changes. See [0.3.11 evidence](VALIDATION_0.3.11.md).
 
+## Grouping validation (0.3.12)
+
+`media/graphGrouping.js` is a DOM-free projection, loaded before `graph.js` with
+the same CSP nonce as the geometry helper. New tests load the actual production
+helper into Node VM realms, not reimplemented grouping logic. The current Node
+suite includes projection conservation, package/root/duplicate/external path
+cases, 5,000-node aggregation, original-hop tracing, exact restore, grouped drag,
+symbol terminology, visibility/missing flags, and grouped SVG assertions. The
+existing real-MATLAB process/log/export test remains opt-in through
+`MATLAB_VIZ_TEST_EXECUTABLE`; the complete MATLAB suite remains 23 tests.
+
+Run fresh native profiles with:
+
+```powershell
+$env:MATLAB_VIZ_TEST_EXECUTABLE = 'C:\Program Files\MATLAB\R2026b\bin\matlab.exe'
+& .\test\host\runRestoration.ps1 `
+  -FixturesRoot 'E:\_Git\matlab-viz\.tools\validation\0.3.5\host-fixtures' `
+  -ArtifactsRoot 'E:\_Git\matlab-viz\.tools\validation\0.3.12\native-grouping-new' `
+  -Phases @('grouping', 'restore-grouping', 'group-refresh')
+```
+
+The first two phases use a retained graph cache (override `-GraphFile` if needed),
+real layouts/save dialogs/five exports, and a full application restart. The
+third uses the existing four-file MATLAB fixture for actual Refresh and error
+preservation. Run `grouping` first in a fresh profile. The old visual/clarity/
+seven restoration phases remain independent regression requirements. Keep
+generated profiles/logs/screenshots/models out of Git and the VSIX. See the
+[grouping guide](GROUPING.md) for expected user behavior and boundaries.
+
 ## Release checklist
 
 1. Choose and add a distribution license.

@@ -8,8 +8,8 @@
 - [x] JSON, DOT, CSV, SVG, and PNG exports
 - [x] File watching, cancellation, caching, logs, and settings
 - [x] MATLAB backend integration test on a real subsystem
-- [ ] Complete Extension Development Host validation
-- [ ] Package and install the first VSIX
+- [x] Complete Windows Extension Development Host validation (ongoing regression suite)
+- [x] Package and install local VSIX builds (public publishing remains on hold)
 
 ## 0.2 — richer MATLAB semantics
 
@@ -20,13 +20,13 @@
 - [ ] Class inheritance and property-type relationships
 - [ ] Read/write classification for variable references
 - MATLAB package, class-folder, namespace, and inheritance visualization
-- Simulink subsystem/model-reference metadata
+- [x] Saved Simulink model/subsystem reference metadata with explicit folder-scope limits (0.3.11)
 - Problems and required-products panes
 - Source-control change and blast-radius graph
 
 ## 0.3 — large graph workflows
 
-- Folder/package grouping and collapsible clusters
+- [x] Folder/package grouping and collapsible summary nodes (0.3.12; flat first version)
 - Saved graph workspaces, node positions, notes, and manual edges
 - Strongly connected components and cycle explorer
 - Community detection and centrality ranking

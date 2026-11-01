@@ -4,11 +4,12 @@ import test from "node:test";
 import type { DependencyGraph } from "../src/model";
 import { loadExtensionModule } from "./support/loadModule";
 
-function panelHarness(pendingTab = false) {
+function panelHarness(pendingTab = false, activateAfter = 1) {
   const created: any[] = [];
   const editorCommands: Array<{ name: string; args: unknown[] }> = [];
-  const groups = [{ viewColumn: 1, tabs: [] as any[] }, { viewColumn: 2, tabs: pendingTab ? [{ input: { viewType: "mainThreadWebview-matlabViz.graph" } }] : [] }];
+  const groups = [{ viewColumn: 1, tabs: [] as any[] }, { viewColumn: 2, tabs: pendingTab ? [{ isActive: false, input: { viewType: "mainThreadWebview-matlabViz.graph" } }] : [] }];
   let activeIndex = 0;
+  let activationAttempts = 0;
   // The API may expose a different wrapper for the same group. Identity is
   // not a reliable way to recognize the group containing a lazy webview tab.
   const tabGroups = { all: groups, get activeTabGroup() { return { ...groups[activeIndex] }; } };
@@ -35,6 +36,7 @@ function panelHarness(pendingTab = false) {
       ViewColumn: { One: 1 }, commands: { async executeCommand(name: string, ...args: unknown[]) {
         editorCommands.push({ name, args });
         if (name === "workbench.action.focusNextGroup") activeIndex = 1;
+        if (name === "workbench.action.openEditorAtIndex" && ++activationAttempts >= activateAfter && groups[1]!.tabs[0]) groups[1]!.tabs[0].isActive = true;
       } }, window: {
         tabGroups,
         createWebviewPanel: () => { const panel = makePanel(1); created.push(panel); return panel; },
@@ -119,6 +121,14 @@ test("Show activates a lazily restored graph tab without creating a duplicate pa
   await restored.receive({ type: "ready" });
   assert.equal(restored.messages[0].graph, graph);
   assert.equal(created.length, 0);
+});
+
+test("lazy auxiliary Show retries an index command until cross-window focus activates the actual tab", async () => {
+  const { bridge, graph, created, editorCommands } = panelHarness(true, 3);
+  await bridge.show(graph);
+  assert.equal(created.length, 0);
+  assert.equal(editorCommands.filter((command) => command.name === "workbench.action.openEditorAtIndex").length, 3);
+  assert.equal(editorCommands.filter((command) => command.name === "workbench.action.focusActiveEditorGroup").length, 3);
 });
 
 test("showing and exporting an unchanged graph do not reset webview data", async () => {

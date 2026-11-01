@@ -44,7 +44,9 @@ MATLAB path and current-folder changes.
 
 Project analysis uses the Project object's dependency graph. The shared folder
 analyzer calls `requiredFilesAndProducts(...,"toponly")` once per supported
-source file, which is necessary to preserve direct edges.
+MATLAB program file to preserve direct edges. Saved Simulink model/subsystem
+references use `Simulink.MDLInfo` instead, with explicit partial-scope warnings;
+see the [model-analysis guide](SIMULINK_VALIDATION.md).
 
 ## Graph model
 
@@ -57,6 +59,22 @@ The JSON document contains:
 - `problems`: missing files and nonfatal per-file analysis failures.
 
 The model is intentionally independent of SVG and VS Code. Future clients can consume the same JSON without starting the extension.
+
+## Webview grouping
+
+`media/graphGrouping.js` is a DOM-free, deterministic view projection shared by
+renderer and tests. It partitions original nodes by physical folder/package,
+maps collapsed members to collision-safe synthetic IDs, and aggregates original
+directed edges without mutating them. Internal collapsed links are counted, not
+discarded from analysis. Filtering/tracing use the original graph before
+projection; tracing a group is a multi-source original-graph search. Layout,
+dragging and SVG/PNG geometry use the displayed projection. Host JSON/DOT/CSV
+exporters never receive it and keep the complete analyzer graph.
+
+Grouping/expansion and per-mode positions are version-1 webview preferences,
+not new graph-schema fields. Older saved views default to no grouping. Same-root
+Refresh preserves grouping/expansion; another root/type resets them. See the
+[grouping guide](GROUPING.md) for exact membership/count/persistence boundaries.
 
 ## Webview security
 
