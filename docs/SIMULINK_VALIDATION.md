@@ -1,10 +1,12 @@
 # Simulink dependency analysis: scope and validation
 
 MATLAB Viz displays **file relationships**, not a Simulink block diagram,
-simulation trace, signal-flow graph, or compiled model hierarchy. It does not
-compile, simulate, generate code, or save user models as part of its analysis.
-Analyze trusted content: opening a Project can run its startup/shutdown tasks,
-and MATLAB's broader model-analysis operations can load model content.
+simulation trace, signal-flow graph, or compiled model hierarchy. MATLAB Viz does
+not issue model-update, compilation, simulation, code-generation, or model-save
+commands during analysis. Analyze trusted content: opening a Project can run its
+startup/shutdown tasks, which can execute arbitrary project code, and MATLAB's
+broader analysis operations can load/initialize model content. This is not a
+guarantee about the internals of every native analyzer or project task.
 
 ## Choose the backend deliberately
 
