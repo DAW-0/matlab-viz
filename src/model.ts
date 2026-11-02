@@ -9,6 +9,8 @@ export interface GraphNode {
   kind: string;
   external: boolean;
   missing: boolean;
+  /** Native unresolved name: path is evidence text, not a navigable location. */
+  unresolved?: boolean;
   line?: number;
   character?: number;
   endLine?: number;

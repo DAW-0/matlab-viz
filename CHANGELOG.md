@@ -4,6 +4,63 @@ All notable changes to MATLAB Viz will be documented here.
 
 ## [Unreleased]
 
+## [0.3.21] - 2026-11-02
+
+### Release preparation
+
+- Adopt the MIT License under DAW-0 and MATLAB Viz contributors, include it in the manifest/VSIX, and add concrete GitHub private security-reporting and support policies. Public publishing remains on hold.
+- Narrow validated integration claims to local Windows x64, VSCodium 1.143.17232 and MATLAB R2026b; raise the manifest editor floor to 1.143 and explicitly decline untrusted/virtual workspaces. Other editor/platform/MATLAB combinations remain unvalidated.
+- Migrate ESLint 8 to ESLint 10/TypeScript-ESLint flat configuration and apply a narrowly targeted, contract-tested minimatch 10.2.6 → 11.0.1 development-tool mitigation. Retain recommended lint enforcement; no npm tooling is bundled in the runtime.
+- Add clean-commit/tag release packaging, deterministic ZIP timestamps/order, tag-pinned documentation links, bundled user guides, package-content checks and source/package CI. Update stale installation examples and release gates. Local source tags/artifacts do not authorize pushes or registry upload.
+
+## [0.3.20] - 2026-11-02
+
+### Added
+
+- **Compare analyses** saves/loads local versioned complete-analysis baselines, remembers the selected baseline, and compares original file/name, relationship, notice and product evidence independently of display filters. Stable file/name identities replace volatile analyzer IDs; ambiguous identities and incompatible roots/schemas are refused.
+- Whole-analysis and selected dependency/impact-scope comparisons, separate recorded-coverage differences, bounded panel lists and complete Markdown/JSON reports retaining all notices/product evidence. Notices no longer reported are not claimed resolved; unchanged node metadata is not a source-content equality claim.
+- Host-owned comparison snapshot exports, local-file/size validation, Clear-without-delete, cancellation/failure recovery, stale-dialog/Refresh guards, saved selection/scope restoration and real baseline/comparison logging. Added engine, host, renderer and native Save/Load/export/restart/Reload Window regressions; no MATLAB execution is needed for comparison.
+
+## [0.3.19] - 2026-11-02
+
+### Added
+
+- **Impact report** traces all incoming analyzed links to identify direct and transitive dependents of a selected file, independently of display filters/depth. The selected file is not counted as its own dependent; cycles and parallel links do not inflate counts. All original notices/products retain exact-evidence classifications and Markdown/JSON exports.
+- Reversible impact scopes and **Show impact path** reuse original graph evidence without reversing any arrows. The panel explicitly distinguishes potential change exposure from runtime execution, predicted breakage or required edits. Ordinary graph exports retain complete analysis; visual exports reflect the scope/path.
+- Target-only restoration, direction-aware stale-response checks, report/path logging, documented interpretation limits and native-editor export/restart/Reload Window regressions. Existing entry-point report formats and cache schemas remain unchanged.
+
+## [0.3.18] - 2026-11-02
+
+### Added
+
+- **Show dependency path** in a report-scoped node's details highlights one minimum-hop route from the entry file using only original analyzed predecessor links. The ordered panel retains each link's kind and details, marks missing/unresolved targets, and explicitly says this is neither the only possible route nor a runtime execution trace.
+- **Fit dependency path** and persistent **Clear dependency path** leave graph membership and coordinates unchanged. The active path survives graph-tab restoration by saving its target ID and rebuilding evidence in the host; delayed responses after Clear/Return are ignored.
+- SVG/PNG visual exports preserve route highlighting; graph JSON/DOT/CSV and report Markdown/JSON continue to export their prior complete evidence. Added engine, host, renderer, SVG and native-editor regression coverage.
+
+## [0.3.17] - 2026-11-02
+
+### Added
+
+- **Show report scope in graph** displays and Fits all original analyzed outgoing dependencies from the report's entry point, independently of display depth. Fresh compact coordinates and original, ungrouped nodes avoid repository-scale gaps; conflicting visibility/grouping/cycle/trace filters are explicitly paused.
+- Persistent scope banner, **Fit report scope**, and **Return to previous view**. Return restores the original filters, grouping, cycle state, coordinate banks, selection, layout and viewport without cumulative drift. Scope and a single ordinary-view backup survive restart/Reload Window; new successful analysis clears them, while failed attempts remain identified correctly.
+- Scoped visual exports retain their normal visual semantics and identify the entry-point scope; graph JSON/DOT/CSV and report Markdown/JSON retain their existing complete evidence. Added renderer and native-editor regressions for reversible scope, exports and restoration.
+
+## [0.3.16] - 2026-11-02
+
+### Added
+
+- Entry-point file reports traverse all original outgoing analyzed links independently of view filters/depth, retaining shortest-hop evidence, missing files and unresolved names without inferring dynamic targets.
+- Exact-evidence reachable/outside/unattributed notice and product classification. All original notices remain exportable; coverage limits distinguish static evidence from runtime validation.
+- Right-panel inspection, paginated navigation, Markdown/JSON exports, shared export-directory preference, logging, saved-seed restoration and stale-response protection. Existing graph exports and schemas are unchanged.
+- Self-contained MATLAB fixtures and engine/host/webview regression tests; no WEST checkout required.
+
+## [0.3.15] - 2026-11-02
+
+### Fixed
+
+- Cycle isolation now lays out disconnected visible components as compact, non-overlapping islands, so Fit no longer includes repository-sized gaps. Isolated positions are saved separately; leaving isolation restores overview coordinates, and older isolated states migrate on first load.
+- Project dependency names without established file paths are retained as unresolved names, not asserted to be missing files or outside-root files. Their links/notices survive external-file exclusion. Details show unknown scope, file navigation is disabled, folder/package ownership is not guessed, and mixed summaries distinguish files/names. Absolute tracked missing paths retain normal missing-file handling.
+
 ## [0.3.14]
 
 ### Fixed

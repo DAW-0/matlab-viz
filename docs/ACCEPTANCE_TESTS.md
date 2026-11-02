@@ -1,5 +1,16 @@
 # Acceptance findings
 
+## Current release-preparation status (0.3.21)
+
+MIT licensing, a concrete private-reporting policy, narrower support claims,
+patched development tooling and clean-tag packaging are now in place. Current
+local validation passes 209 automated tests (two optional MATLAB-process tests
+skipped) and ten native VSCodium comparison/impact/entry-report phases. See
+[0.3.21 validation](VALIDATION_0.3.21.md), [support scope](../SUPPORT.md) and
+[release gates](RELEASE.md). Historical checkout counts and older repair batches
+below are retained as evidence, not current release-wide expected counts or
+broader compatibility claims. Public publishing remains on hold.
+
 ## Scope
 
 Manual acceptance testing was performed with MATLAB Viz 0.3.4, VSCodium,

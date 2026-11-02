@@ -18,6 +18,9 @@
     const keyFor = (value) => windows ? value.toLowerCase() : value;
     const used = new Set(graph.nodes.map((node) => node.id));
     for (const node of graph.nodes) {
+      // Unknown names have no proven folder/package owner. Keep them as
+      // ordinary standalone nodes instead of inventing an External root group.
+      if (node.unresolved) continue;
       const full = normalize(node.path);
       const inside = keyFor(full).startsWith(keyFor(root) + "/");
       const directory = parent(inside ? full.slice(root.length + 1) : full || normalize(node.relativePath));

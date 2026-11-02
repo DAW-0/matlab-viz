@@ -8,6 +8,29 @@ const moduleAdapter = { exports: {} as any };
 vm.runInNewContext(readFileSync(path.resolve(__dirname, "../../media/graphGeometry.js"), "utf8"), { module: moduleAdapter });
 const geometry = moduleAdapter.exports;
 
+test("compact islands ignore inherited gaps and pack variable rectangles including self-loop extents", () => {
+  const nodes = Array.from({ length: 60 }, (_, i) => ({ id: String(i) }));
+  const edges = nodes.map((node, i) => ({ id: `e${i}`, source: node.id, target: String(i % 3 === 2 ? i - 2 : i + 1) }));
+  edges.push({ id: "self", source: "0", target: "0" });
+  const data = { nodes, edges }, before = JSON.stringify(data), positions = new Map<string, any>();
+  const sizes = new Map(nodes.map((node, i) => [node.id, geometry.labelBox("long/path/".repeat(1 + i % 8) + node.id)]));
+  for (const node of nodes) positions.set(node.id, { x: Number(node.id) * 10000, y: Number(node.id) * 100000 });
+  const arrange = (part: any) => geometry.grid(part.nodes, positions, sizes);
+  geometry.compactComponents(data, positions, sizes, arrange, 1.6);
+  assertNoOverlaps(data as any, positions, sizes);
+  const boxes = Array.from({ length: 20 }, (_, i) => geometry.bounds({ nodes: nodes.slice(i * 3, i * 3 + 3), edges: edges.filter(edge => Math.floor(Number(edge.source) / 3) === i) }, positions, sizes, 0));
+  for (let a = 0; a < boxes.length; a++) for (let b = a + 1; b < boxes.length; b++) {
+    const x = boxes[a], y = boxes[b];
+    assert.ok(x.minX + x.width <= y.minX || y.minX + y.width <= x.minX || x.minY + x.height <= y.minY || y.minY + y.height <= x.minY);
+  }
+  const box = geometry.bounds(data, positions, sizes);
+  assert.ok(box.width < 6000 && box.height < 6000);
+  const compact = JSON.stringify([...positions]); geometry.compactComponents(data, positions, sizes, arrange, 1.6);
+  assert.equal(JSON.stringify([...positions]), compact); assert.equal(JSON.stringify(data), before);
+  geometry.compactComponents({ nodes: [], edges: [] }, positions, sizes, arrange);
+  assert.equal(JSON.stringify([...positions]), compact);
+});
+
 test("anchored cluster placement keeps fixed rectangles unchanged and deterministically avoids crowded obstacles", () => {
   const nodes = ["a", "b", "c", "d"].map((id) => ({ id }));
   const fixed = Array.from({ length: 200 }, (_, i) => ({ id: `fixed${i}` }));
@@ -117,6 +140,21 @@ test("self-loop bounds and full-graph SVG are independent of pan/zoom and retain
   const viewport = geometry.svgDocument(data, positions, sizes, { scope: "viewport", width: 800, height: 600, transform: { x: 3, y: 4, k: 2 } });
   assert.ok(viewport.source.includes('viewBox="0 0 800 600"'));
   assert.ok(viewport.source.includes('transform="translate(3,4) scale(2)"'));
+});
+
+test("path SVG preserves original IDs, dims off-route evidence, and escapes explanatory text", () => {
+  const data = fixture(3), sizes = new Map(data.nodes.map(node => [node.id, geometry.labelBox(node.relativePath)]));
+  const positions = new Map<string, any>(); geometry.grid(data.nodes, positions, sizes);
+  const source = geometry.svgDocument(data, positions, sizes, { scope: "graph", transform: { x: 0, y: 0, k: 1 },
+    dependencyPathNodeIds: new Set(["0", "1"]), dependencyPathEdgeIds: new Set([data.edges[0]!.id]),
+    pathDescription: "One route <not runtime>" }).source;
+  assert.match(source, /One route &lt;not runtime&gt;/);
+  assert.equal((source.match(/class="node dependency-path"/g) || []).length, 2);
+  assert.equal((source.match(/class="node path-dim"/g) || []).length, 1);
+  assert.equal((source.match(/class="edge dependency-path"/g) || []).length, 1);
+  assert.match(source, /marker-end="url\(#arrow-path\)"/);
+  assert.equal((source.match(/data-node-id=/g) || []).length, data.nodes.length);
+  assert.equal((source.match(/data-edge-id=/g) || []).length, data.edges.length);
 });
 
 test("PNG dimensions are explicit and unsafe canvas sizes fail with actionable alternatives", () => {

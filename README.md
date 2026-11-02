@@ -2,11 +2,11 @@
 
 MATLAB Viz is a MATLAB-first dependency explorer for VS Code and VSCodium. It runs MATLAB's documented dependency-analysis APIs locally, converts the results into a portable graph model, and presents that model as an interactive dependency and impact graph.
 
-> **Development status:** `0.3.14` is a working development build. MATLAB Project and folder backends are exercised by automated MATLAB tests and repository acceptance tests. Function call-hierarchy and symbol-reference graphs use the installed MATLAB language service and a conservative MATLAB syntax fallback. See the [acceptance findings](docs/ACCEPTANCE_TESTS.md) for known limitations and pending repairs.
+> **Development preview:** `0.3.21` is validated with local Windows x64, VSCodium 1.143.17232 and MATLAB R2026b. Other editor/platform/MATLAB combinations are not supported release targets yet. See [tested environments and support](SUPPORT.md), [acceptance findings](docs/ACCEPTANCE_TESTS.md) and [release gates](docs/RELEASE.md). Public registry publication remains on hold.
 
 ## Why MATLAB Viz?
 
-General-purpose code-graph extensions usually depend on the Language Server Protocol call-hierarchy API. The MATLAB language server does not currently provide the call hierarchy needed by those extensions. MATLAB Viz uses MATLAB itself instead:
+General-purpose code-graph extensions often depend on Language Server Protocol call-hierarchy support. MATLAB Viz's file graphs do not require that capability: they use MATLAB's own dependency-analysis APIs instead:
 
 - MATLAB Projects: `updateDependencies(project)` followed by `project.Dependencies`
 - Ordinary folders: `matlab.codetools.requiredFilesAndProducts(file,"toponly")`
@@ -24,6 +24,11 @@ The Project backend is the programmatic form of MATLAB's built-in Dependency Ana
 - Double-click a node to open it in the editor.
 - Search by file name, relative path, or full path.
 - Trace dependencies or impact from a selected file to a configurable depth.
+- Generate [entry-point dependency reports](docs/ENTRY_POINT_REPORTS.md) with scoped notices, coverage limits and complete Markdown/JSON exports independent of view filters.
+- Show/Fit the report's complete analyzed scope in the graph, then restore the exact previous view with one click; scope and undo survive restart/Reload Window.
+- Within that scope, show and fit one shortest analyzed dependency path to any node, with ordered original-link evidence and clear runtime caveats; clear it without moving the graph.
+- Generate [file impact reports](docs/IMPACT_REPORTS.md) for direct/transitive dependents, with reverse-reachable scopes, original-direction impact paths, complete Markdown/JSON exports and explicit change-exposure limits.
+- Save complete [analysis baselines and compare fresh evidence](docs/ANALYSIS_COMPARISON.md): file/link/notice/product changes, recorded coverage differences, selected dependency/impact scope changes, and complete Markdown/JSON comparison exports.
 - Include or hide external and isolated files.
 - Identify missing files and per-file analysis warnings.
 - List required MathWorks products discovered by folder analysis.
@@ -40,11 +45,12 @@ The Project backend is the programmatic form of MATLAB's built-in Dependency Ana
 
 ## Requirements
 
-- VS Code or VSCodium 1.95 or newer
-- MATLAB available locally
-- MATLAB R2025a or newer for the Project backend's configured analysis options; automated validation uses R2026b. Older releases are not validated.
+- Local Windows x64 and VSCodium 1.143.17232, the validated integration environment. The manifest requires editor version 1.143 or newer; that is not a claim that all newer/other editors were tested.
+- MATLAB R2026b available locally; other MATLAB releases are not supported by this preview.
 - Simulink installed/licensed for model analysis; ordinary MATLAB-code folder analysis does not require Simulink.
-- Node.js LTS only for developing or packaging MATLAB Viz
+- Node.js 22.13+ on the 22 line, or 24+, only for development/packaging; this local release is built and reproduced with Node.js 26.13.0 and `package-lock.json`.
+
+Microsoft VS Code, macOS/Linux integration, ARM, remote/WSL/container extension hosts and web/virtual workspaces are not validated release targets. Linux TypeScript/unit CI is not MATLAB/editor integration evidence. See [SUPPORT.md](SUPPORT.md) for precise scope and known limitations.
 
 File dependency graphs do not require the MATLAB language server. Function and symbol graphs require a MATLAB language extension that supplies Definition and References results in VSCodium. Your source code and dependency graph stay on your machine.
 
@@ -53,7 +59,7 @@ File dependency graphs do not require the MATLAB language server. Function and s
 ```powershell
 git clone https://github.com/DAW-0/matlab-viz.git
 cd matlab-viz
-npm install
+npm ci --ignore-scripts
 npm run check
 npm run build
 ```
@@ -64,8 +70,12 @@ To create an installable package:
 
 ```powershell
 npm run package
-codium --install-extension matlab-viz-0.3.14.vsix
+$extensionVersion = (Get-Content package.json -Raw | ConvertFrom-Json).version
+codium --install-extension ".\matlab-viz-$extensionVersion.vsix"
 ```
+
+For a reproducible committed/tagged local release, use the separate
+[release procedure](docs/RELEASE.md). It packages only, never publishes.
 
 ## Grouping large graphs
 
@@ -134,6 +144,14 @@ all options and examples.
 
 ## Important settings
 
+Project results can include **unresolved dependency names**, such as variables,
+unavailable functions/classes, or assets without an established path. These are
+not confirmed missing files. They remain visible when external files are excluded,
+are not assigned guessed folders/packages, and have no file-navigation action.
+Mixed summaries distinguish files/names and report the unresolved count. An
+absolute tracked missing file remains a separate kind of warning. Refresh an
+older Project graph to regenerate this distinction.
+
 | Setting | Default | Meaning |
 |---|---:|---|
 | `matlabViz.matlabExecutable` | auto | Absolute path to MATLAB. |
@@ -175,9 +193,9 @@ For symbol graphs, external means outside the open workspace folders, rather
 than outside a selected folder. Enabling inclusion does not guarantee that static
 analysis can resolve every external dependency.
 
-For a function hierarchy, the graph toolbar's **Depth** value controls the
-visible trace and is also used as the analysis depth when **Refresh** is
-pressed. Refresh reuses the original function even while the graph webview has
+For a function hierarchy, the toolbar's **Analysis depth** controls the analysis
+depth used when **Refresh** is pressed. The separate **Trace depth** shown for
+file graphs filters an already analyzed view. Refresh reuses the original function even while the graph webview has
 focus. The MATLAB Viz output log reports each traversal step and any provider
 timeouts.
 
@@ -315,6 +333,8 @@ empty graph is not proof that a symbol is unused. See the
 - [Roadmap](docs/ROADMAP.md)
 - [Contributing](CONTRIBUTING.md)
 - [Security](SECURITY.md)
+- [Support and tested environments](SUPPORT.md)
+- [Release procedure](docs/RELEASE.md)
 
 ## Privacy
 
@@ -322,4 +342,6 @@ MATLAB Viz starts the local MATLAB executable, reads the resulting JSON file, an
 
 ## License
 
-A distribution license has intentionally not yet been selected. Choose one before making the GitHub repository public or publishing a VSIX.
+MIT. See [LICENSE](LICENSE). MATLAB/Simulink and installed language extensions
+remain separately licensed; this license does not grant rights to those products
+or to repositories/models analyzed by MATLAB Viz.

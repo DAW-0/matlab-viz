@@ -17,6 +17,11 @@ references. Detection uses original nodes/edges before grouping or view filters.
    disables the direction control so an old file trace cannot silently restrict
    the cycle. For function hierarchies, Analysis Depth remains available for a
    subsequent Refresh; ordinary Trace Depth is disabled during isolation.
+   Visible components are laid out independently and packed close together so
+   **Fit** uses the isolated content, not the gaps from the full repository.
+   The chosen layout applies within each visible island. Isolation has its own
+   saved coordinates; dragging or re-laying out this view does not overwrite
+   overview coordinates. Fit alone never moves nodes.
 4. Select one component or all of them using the toolbar. The same highlight,
    isolate and off actions are available in the browser. Compact windows that
    hide the details panel retain the toolbar controls.
@@ -89,7 +94,8 @@ members, including when changing grouping modes during isolation. Unselected
 members in those groups are filtered out, not relabelled as cyclic. You can
 explicitly collapse groups again afterward; their internal links are then
 summarized, not drawn. Turning cycle view off leaves those expansion preferences
-as normal view state; it does not restore a separate pre-cycle arrangement.
+as normal view state. Overview and isolated coordinates are stored separately,
+so leaving isolation returns to the overview arrangement without accumulated drift.
 
 With **All cyclic components** isolated, links between separate components are
 excluded even if both endpoints belong to cyclic components: a one-way bridge

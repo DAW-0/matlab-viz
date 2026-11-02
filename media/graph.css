@@ -24,7 +24,12 @@ body { display: flex; flex-direction: column; color: var(--vscode-foreground); b
 #analysis-status { flex-shrink: 0; display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 8px 10px; border-bottom: 1px solid var(--vscode-editorWarning-foreground, #cca700); background: var(--vscode-editor-background); }
 #analysis-status[hidden] { display: none; }
 #analysis-status-text { flex: 1; min-width: 180px; overflow-wrap: anywhere; }
-#analysis-status button { cursor: pointer; color: var(--vscode-button-secondaryForeground); background: var(--vscode-button-secondaryBackground); border: 1px solid var(--vscode-button-border, transparent); padding: 4px 7px; }
+/* Scope is view state, kept outside the exported SVG and distinct from an
+   analysis-failure notice. The exit remains reachable after selecting a node. */
+#report-scope-status { flex-shrink: 0; display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 7px 10px; border-bottom: 1px solid var(--vscode-focusBorder); }
+#report-scope-status[hidden] { display: none; }
+#report-scope-text { flex: 1; min-width: 180px; overflow-wrap: anywhere; }
+#analysis-status button, #report-scope-status button { cursor: pointer; color: var(--vscode-button-secondaryForeground); background: var(--vscode-button-secondaryBackground); border: 1px solid var(--vscode-button-border, transparent); padding: 4px 7px; }
 /* The separator owns its own grid track, so it never covers graph hit targets. */
 main { --details-width: 280px; flex: 1; min-height: 0; min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) 6px var(--details-width); }
 #details-resizer { cursor: col-resize; touch-action: none; user-select: none; background: var(--vscode-panel-border, #555); }
@@ -50,12 +55,19 @@ main[data-resizing="true"], main[data-resizing="true"] * { cursor: col-resize !i
 .edge { stroke: var(--edge); stroke-width: 1.2; opacity: .62; fill: none; marker-end: url(#arrow); cursor: pointer; }
 .edge.cyclic { stroke: var(--vscode-charts-purple, #b86dda); stroke-width: 2.4; opacity: 1; }
 .edge.highlight { stroke: var(--selected); stroke-width: 2.4; opacity: 1; }
+.edge.path-dim { opacity: .1; }
+/* Path styling is independent of selection/cycle styling. It highlights only
+   the exact original predecessor links returned by the host, never a group. */
+.edge.dependency-path { stroke: var(--vscode-charts-green, #4fbf75); stroke-width: 3; opacity: 1; }
 .node { cursor: pointer; }
 .node rect { fill: var(--node-fill); stroke: var(--node-stroke); stroke-width: 1.5; rx: 5; filter: url(#shadow); }
 .node.external rect { stroke: var(--vscode-charts-yellow, #d6a500); stroke-dasharray: 5 3; }
 .node.cyclic rect { stroke: var(--vscode-charts-purple, #b86dda); stroke-width: 2.5; }
 .node.missing rect { stroke: var(--vscode-errorForeground, #e33); stroke-width: 2.5; }
 .node.selected rect { stroke: var(--selected); stroke-width: 3; }
+.node.path-dim { opacity: .15; }
+.node.dependency-path rect { stroke: var(--vscode-charts-green, #4fbf75); stroke-width: 3; }
+.node.dependency-path.missing rect { stroke: var(--vscode-errorForeground, #e33); }
 .node.dim { opacity: .15; }
 .node.cluster rect { stroke-width: 2.5; rx: 12; }
 .node.cluster:focus-visible rect { stroke: var(--selected); stroke-width: 4; }

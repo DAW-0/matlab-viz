@@ -37,6 +37,56 @@
     });
   }
 
+  // Lay out visible connected islands independently, then shelf-pack their
+  // complete rectangles (including self-loop curves). Isolation must not inherit
+  // repository-sized gaps or let disconnected Force islands drift apart. This
+  // is geometry only: it neither classifies cycles nor changes graph evidence.
+  function compactComponents(data, positions, sizes, arrange, aspect = 1.6) {
+    const adjacency = new Map(data.nodes.map((node) => [node.id, []]));
+    for (const edge of data.edges) {
+      if (!adjacency.has(edge.source) || !adjacency.has(edge.target)) continue;
+      adjacency.get(edge.source).push(edge.target); adjacency.get(edge.target).push(edge.source);
+    }
+    const owners = new Map(), blocks = [];
+    for (const node of data.nodes) {
+      if (owners.has(node.id)) continue;
+      const block = { nodes: [], edges: [] }, stack = [node.id];
+      owners.set(node.id, blocks.length); blocks.push(block);
+      while (stack.length) {
+        for (const id of adjacency.get(stack.pop())) {
+          if (!owners.has(id)) { owners.set(id, blocks.length - 1); stack.push(id); }
+        }
+      }
+    }
+    // Preserve input ordering and bucket links once, rather than repeatedly
+    // scanning the entire graph for each of thousands of independent islands.
+    for (const node of data.nodes) blocks[owners.get(node.id)].nodes.push(node);
+    for (const edge of data.edges) {
+      const owner = owners.get(edge.source);
+      if (owner !== undefined && owner === owners.get(edge.target)) blocks[owner].edges.push(edge);
+    }
+    let area = 0, maximumWidth = 0;
+    for (const block of blocks) {
+      // Fresh local seeds make repeated isolation/re-layout deterministic; this
+      // map belongs to isolation, never the saved overview arrangement.
+      for (const node of block.nodes) positions.delete(node.id);
+      arrange(block);
+      block.box = bounds(block, positions, sizes, 16);
+      maximumWidth = Math.max(maximumWidth, block.box.width);
+      area += (block.box.width + 48) * (block.box.height + 48);
+    }
+    const targetWidth = Math.max(maximumWidth, Math.sqrt(area * Math.max(.25, Math.min(4, aspect))));
+    let x = 0, y = 0, rowHeight = 0;
+    for (const { nodes, box } of blocks) {
+      if (x && x + box.width > targetWidth) { x = 0; y += rowHeight + 48; rowHeight = 0; }
+      for (const node of nodes) {
+        const point = positions.get(node.id);
+        positions.set(node.id, { x: point.x + x - box.minX, y: point.y + y - box.minY });
+      }
+      x += box.width + 48; rowHeight = Math.max(rowHeight, box.height);
+    }
+  }
+
   // Iterative strongly connected components avoid recursion limits on large
   // repositories. A cycle occupies one rank; the condensed graph is acyclic.
   function hierarchical(data, positions, sizes) {
@@ -204,12 +254,13 @@
   const xml = (value) => String(value).replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&apos;" })[character]);
   function svgDocument(data, positions, sizes, options) {
     const box = options.scope === "viewport" ? { minX: 0, minY: 0, width: options.width, height: options.height } : bounds(data, positions, sizes);
-    const color = { background: "#ffffff", text: "#222222", node: "#1976d2", edge: "#6b7280", selected: "#c05a00", cyclic: "#b86dda", external: "#a17700", missing: "#d32f2f", ...options.colors };
+    const color = { background: "#ffffff", text: "#222222", node: "#1976d2", edge: "#6b7280", selected: "#c05a00", cyclic: "#b86dda", external: "#a17700", missing: "#d32f2f", path: "#4fbf75", ...options.colors };
     const parts = [`<svg xmlns="http://www.w3.org/2000/svg" xml:space="preserve" width="${box.width}" height="${box.height}" viewBox="${box.minX} ${box.minY} ${box.width} ${box.height}" role="img">`,
-      `<title>MATLAB Viz dependency graph</title><desc>${data.nodes.length} nodes, ${data.edges.length} edges; ${xml(options.scope || "graph")} export. Search highlights do not exclude nodes.${data.original ? ` Grouped view of ${data.original.nodes.length} original nodes and ${data.original.edges.length} original links; ${data.internalEdges} links are internal to collapsed groups. Counts are graph links, not source occurrences. JSON/DOT/CSV retain the complete ungrouped graph.` : ""} ${xml(options.cycleDescription || "")}</desc>`,
+      `<title>MATLAB Viz dependency graph</title><desc>${data.nodes.length} nodes, ${data.edges.length} edges; ${xml(options.scope || "graph")} export. Search highlights do not exclude nodes.${data.original ? ` Grouped view of ${data.original.nodes.length} original nodes and ${data.original.edges.length} original links; ${data.internalEdges} links are internal to collapsed groups. Counts are graph links, not source occurrences. JSON/DOT/CSV retain the complete ungrouped graph.` : ""} ${xml(options.cycleDescription || "")} ${xml(options.pathDescription || "")}</desc>`,
       `<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M 0 0 L 10 5 L 0 10 z" fill="${xml(color.edge)}"/></marker><marker id="arrow-selected" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M 0 0 L 10 5 L 0 10 z" fill="${xml(color.selected)}"/></marker></defs>`,
       `<rect x="${box.minX}" y="${box.minY}" width="${box.width}" height="${box.height}" fill="${xml(color.background)}"/>`];
     parts.push(`<defs><marker id="arrow-cycle" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M 0 0 L 10 5 L 0 10 z" fill="${xml(color.cyclic)}"/></marker></defs>`);
+    parts.push(`<defs><marker id="arrow-path" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M 0 0 L 10 5 L 0 10 z" fill="${xml(color.path)}"/></marker></defs>`);
     const view = options.transform;
     parts.push(options.scope === "viewport" ? `<g transform="translate(${view.x},${view.y}) scale(${view.k})">` : "<g>");
     for (const edge of data.edges) {
@@ -217,7 +268,8 @@
       const highlight = edge.source === options.selectedId || edge.target === options.selectedId || options.selectedIds?.has(edge.source) || options.selectedIds?.has(edge.target);
       const shape = value.d ? `<path d="${value.d}"` : `<line x1="${value.x1}" y1="${value.y1}" x2="${value.x2}" y2="${value.y2}"`;
       const cyclic = options.cyclicEdgeCounts?.get(edge.id) || 0;
-      parts.push(`${shape} data-edge-id="${xml(edge.id)}" class="edge${cyclic ? " cyclic" : ""}"${cyclic ? ` data-cyclic-links="${cyclic}"` : ""} fill="none" stroke="${xml(highlight ? color.selected : cyclic ? color.cyclic : color.edge)}" stroke-width="${highlight || cyclic ? 2.4 : 1.2}" marker-end="url(#${highlight ? "arrow-selected" : cyclic ? "arrow-cycle" : "arrow"})"/>`);
+      const onPath = options.dependencyPathEdgeIds?.has(edge.id), pathActive = Boolean(options.dependencyPathNodeIds);
+      parts.push(`${shape} data-edge-id="${xml(edge.id)}" class="edge${cyclic ? " cyclic" : ""}${onPath ? " dependency-path" : pathActive ? " path-dim" : ""}"${cyclic ? ` data-cyclic-links="${cyclic}"` : ""} fill="none" stroke="${xml(onPath ? color.path : pathActive ? color.edge : highlight ? color.selected : cyclic ? color.cyclic : color.edge)}" stroke-width="${onPath ? 3 : pathActive ? 1.2 : highlight || cyclic ? 2.4 : 1.2}"${pathActive && !onPath ? ' opacity="0.1"' : ""} marker-end="url(#${onPath ? "arrow-path" : pathActive ? "arrow" : highlight ? "arrow-selected" : cyclic ? "arrow-cycle" : "arrow"})"/>`);
       if (edge.count) {
         const point = linkCountPoint(edge, positions, sizes);
         parts.push(`<text class="link-count" x="${point.x}" y="${point.y}" text-anchor="middle" fill="${xml(color.text)}" font-family="${xml(options.fontFamily || "Arial, sans-serif")}" font-size="12" font-weight="bold" paint-order="stroke" stroke="${xml(color.background)}" stroke-width="4" stroke-linejoin="round">${edge.count}</text>`);
@@ -229,8 +281,9 @@
       const selected = node.id === options.selectedId || options.selectedIds?.has(node.id);
       const matches = !query || `${node.label} ${node.relativePath} ${node.path} ${node.searchText || ""}`.toLowerCase().includes(query);
       const cyclic = options.cyclicNodeIds?.has(node.id);
-      const stroke = selected ? color.selected : node.missing ? color.missing : cyclic ? color.cyclic : node.external ? color.external : color.node;
-      parts.push(`<g class="node${cyclic ? " cyclic" : ""}" data-node-id="${xml(node.id)}" transform="translate(${point.x},${point.y})"${matches ? "" : ' opacity="0.15"'}><title>${xml(node.relativePath || node.label)}</title><rect x="${-size.width / 2}" y="${-size.height / 2}" width="${size.width}" height="${size.height}" rx="5" fill="${xml(color.background)}" stroke="${xml(stroke)}" stroke-width="${selected || node.missing || cyclic ? 2.5 : 1.5}"${node.external ? ' stroke-dasharray="5 3"' : ""}/><text text-anchor="middle" fill="${xml(color.text)}" font-family="${xml(options.fontFamily || "Arial, sans-serif")}" font-size="12">`);
+      const onPath = options.dependencyPathNodeIds?.has(node.id), pathActive = Boolean(options.dependencyPathNodeIds);
+      const stroke = pathActive ? onPath ? node.missing ? color.missing : color.path : color.node : selected ? color.selected : node.missing ? color.missing : cyclic ? color.cyclic : node.external ? color.external : color.node;
+      parts.push(`<g class="node${cyclic ? " cyclic" : ""}${onPath ? " dependency-path" : pathActive ? " path-dim" : ""}" data-node-id="${xml(node.id)}" transform="translate(${point.x},${point.y})"${pathActive ? onPath ? "" : ' opacity="0.15"' : matches ? "" : ' opacity="0.15"'}><title>${xml(node.relativePath || node.label)}</title><rect x="${-size.width / 2}" y="${-size.height / 2}" width="${size.width}" height="${size.height}" rx="5" fill="${xml(color.background)}" stroke="${xml(stroke)}" stroke-width="${onPath ? 3 : pathActive ? 1.5 : selected || node.missing || cyclic ? 2.5 : 1.5}"${node.external ? ' stroke-dasharray="5 3"' : ""}/><text text-anchor="middle" fill="${xml(color.text)}" font-family="${xml(options.fontFamily || "Arial, sans-serif")}" font-size="12">`);
       size.lines.forEach((line, index) => parts.push(`<tspan x="0" y="${(index - (size.lines.length - 1) / 2) * 16 + 4}">${xml(line)}</tspan>`));
       parts.push("</text></g>");
     }
@@ -246,5 +299,5 @@
     return { width: w, height: h };
   }
 
-  return { labelBox, grid, circle, hierarchical, separate, placeCluster, boundary, edgeGeometry, linkCountPoint, bounds, fit, svgDocument, rasterSize };
+  return { labelBox, grid, circle, compactComponents, hierarchical, separate, placeCluster, boundary, edgeGeometry, linkCountPoint, bounds, fit, svgDocument, rasterSize };
 });

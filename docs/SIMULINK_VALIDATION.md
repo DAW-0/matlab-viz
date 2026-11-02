@@ -51,6 +51,9 @@ MATLAB to analyze code used in block parameters. `AnalyzeModelParameters` and
 `AnalyzeAddOns` were added in R2024b; `AnalyzeReferences` was added in R2025a.
 The bridge's configured Project option set therefore requires R2025a or later;
 automated validation here uses R2026b. Older hosts are not claimed as validated.
+That API-availability history is not a supported-release promise: the current
+preview supports only the local Windows/VSCodium/R2026b environment described
+in [SUPPORT.md](../SUPPORT.md).
 See the [version history](https://www.mathworks.com/help/matlab/ref/matlab.project.project.updatedependencies.html).
 
 Folder mode reports **Partial Simulink folder analysis** for every inspected

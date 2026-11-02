@@ -81,11 +81,33 @@ close(project);
 movefile(fullfile(fixture, "leaf.m"), fullfile(fixture, "leaf.m.disabled"));
 [document, raw] = analyzeFixture(fixture, mode="project");
 verifyArrayCollections(testCase, raw);
-verifyEqual(testCase, numel(document.nodes), 4);
-verifyEqual(testCase, numel(document.edges), 1);
-verifyEqual(testCase, numel(document.problems), 1);
+% A tracked missing path can coexist with an unresolved bare function name.
+% Do not conflate those or hide the latter with the external-files filter.
+verifyEqual(testCase, nnz(~[document.nodes.unresolved]), 4);
+verifyEqual(testCase, numel(document.edges), 2);
+unknownIds = string({document.nodes([document.nodes.unresolved]).id});
+verifyTrue(testCase, any(ismember(string({document.edges.target}), unknownIds)));
 verifyEqual(testCase, nnz([document.nodes.missing]), 1);
-verifyTrue(testCase, endsWith(document.problems.file, "/leaf.m"));
+verifyTrue(testCase, any(endsWith(string({document.problems.file}), "/leaf.m")));
+verifyFalse(testCase, any([document.nodes([document.nodes.unresolved]).missing]));
+end
+
+function testProjectUnresolvedNameIsNotMissingFile(testCase)
+fixture = testCase.TestData.fixture;
+writeFunction(fixture, "entry", "value = matlabVizDefinitelyUnavailableProbe();");
+project = matlab.project.createProject(Folder=fixture);
+cleanup = onCleanup(@() closeIfOpen(project));
+addFile(project, fullfile(fixture, "entry.m")); addPath(project, fixture);
+close(project);
+for includeExternal = [false, true]
+    document = analyzeFixture(fixture, mode="project", includeExternal=includeExternal);
+    names = document.nodes([document.nodes.unresolved]);
+    verifyTrue(testCase, any(string({names.path}) == "matlabVizDefinitelyUnavailableProbe"));
+    verifyFalse(testCase, any([names.missing]));
+    verifyFalse(testCase, any([names.external])); % Location is not established.
+    verifyTrue(testCase, all(string({names.kind}) == "unresolved dependency"));
+    verifyTrue(testCase, any(contains(string({document.problems.message}), "not a confirmed missing file")));
+end
 end
 
 function testUnicodePathPreserved(testCase)

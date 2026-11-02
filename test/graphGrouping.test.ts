@@ -23,6 +23,18 @@ function fixture() {
   return { metadata: { root: "/fixture" }, nodes, edges };
 }
 
+test("unresolved Project names have no invented folder/package owner", () => {
+  const graph: any = fixture();
+  graph.nodes.push({ id: "unknown", path: "UnavailableClass", label: "UnavailableClass", unresolved: true, external: false, missing: false });
+  graph.edges.push({ id: "au", source: "a", target: "unknown", kind: "dependency" });
+  for (const mode of ["folder", "package"]) {
+    const index = grouping.index(graph, mode), data = grouping.project(graph, index, new Set());
+    assert.equal(index.membership.has("unknown"), false);
+    assert.ok(data.nodes.some((n: any) => n.id === "unknown" && !n.group));
+    assert.ok(data.edges.some((e: any) => e.target === "unknown"));
+  }
+});
+
 test("group projection conserves original directed links including self/parallel/internal relationships", () => {
   const graph = fixture(), saved = JSON.stringify(graph), index = grouping.index(graph, "folder");
   const data = grouping.project(graph, index, new Set());

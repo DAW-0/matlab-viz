@@ -201,14 +201,22 @@ end
 function [nodes, idByPath] = makeNodes(paths, rootPath)
 paths = unique(paths(:), "stable");
 prototype = struct("id", "", "label", "", "path", "", "relativePath", "", ...
-    "extension", "", "kind", "", "external", false, "missing", false);
+    "extension", "", "kind", "", "external", false, "missing", false, "unresolved", false);
 nodes = repmat(prototype, numel(paths), 1);
 idByPath = dictionary(strings(0, 1), strings(0, 1));
 for index = 1:numel(paths)
     filePath = normalizePath(paths(index));
     [~, name, extension] = fileparts(filePath);
     relativePath = makeRelative(filePath, rootPath);
-    external = relativePath == filePath;
+    % Native Project graphs also contain unresolved NAMES (variables,
+    % classes, assets, functions), not just absolute file paths. Preserve the
+    % native identity/edges, but never invent a location or assert a missing
+    % file for a name whose location MATLAB has not established. Unknown scope
+    % stays visible even when resolved external files are excluded.
+    unresolved = isempty(regexp(filePath, "^(?:[A-Za-z]:/|/)", "once"));
+    external = ~unresolved && relativePath == filePath;
+    kind = kindForExtension(extension);
+    if unresolved, kind = "unresolved dependency"; end
     id = filePath;
     nodes(index) = struct( ...
         "id", id, ...
@@ -216,9 +224,10 @@ for index = 1:numel(paths)
         "path", filePath, ...
         "relativePath", relativePath, ...
         "extension", lower(extension), ...
-        "kind", kindForExtension(extension), ...
+        "kind", kind, ...
         "external", external, ...
-        "missing", ~isfile(filePath));
+        "missing", ~unresolved && ~isfile(filePath), ...
+        "unresolved", unresolved);
     idByPath(pathKey(filePath)) = id;
 end
 end
@@ -274,7 +283,11 @@ end
 function problems = problemsForNodes(nodes)
 problems = emptyProblems();
 for index = 1:numel(nodes)
-    if nodes(index).missing
+    if isfield(nodes, "unresolved") && nodes(index).unresolved
+        problems(end + 1, 1) = makeProblem(nodes(index).path, ...
+            "Unresolved dependency name: " + nodes(index).path + ...
+            ". MATLAB did not establish a file path. This may be a variable, unavailable class/function, or missing asset; it is not a confirmed missing file.", "warning"); %#ok<AGROW>
+    elseif nodes(index).missing
         problems(end + 1, 1) = makeProblem(nodes(index).path, "Referenced file does not exist.", "warning"); %#ok<AGROW>
     end
 end

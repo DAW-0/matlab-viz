@@ -3,6 +3,9 @@ import { readFileSync } from "node:fs";
 import * as path from "node:path";
 import test from "node:test";
 import * as vm from "node:vm";
+import { buildEntryPointDependencyPath, buildEntryPointReport, buildImpactDependencyPath, buildImpactReport } from "../src/core/entryPointReport";
+import { entryPointFixture } from "./support/entryPointFixture";
+import { compareAnalyses, createAnalysisBaseline } from "../src/core/analysisComparison";
 
 class Element {
   public children: Element[] = [];
@@ -91,6 +94,25 @@ function webview(initialState?: unknown) {
   return { get, flush, send, load, nodes, state: () => snapshot, events, messages, resizeObservers, documentEvents };
 }
 
+test("unresolved Project names remain visible without guessed file navigation", () => {
+  const fixture: any = structuredClone(graph); fixture.metadata.mode = "project";
+  fixture.nodes.push({ id: "unknown", label: "UnavailableClass", path: "UnavailableClass", relativePath: "UnavailableClass", kind: "unresolved dependency", unresolved: true, external: false, missing: false });
+  fixture.edges.push({ id: "bu", source: "b", target: "unknown", kind: "dependency" });
+  const app = webview(); app.load(fixture);
+  assert.match(app.get("summary").textContent, /5\/5 files\/names/);
+  assert.match(app.get("summary").textContent, /1\/1 unresolved names/);
+  app.get("external").checked = false; app.get("external").trigger("change");
+  const node = app.nodes().find(n => n.attributes["data-node-id"] === "unknown")!;
+  assert.ok(node); node.trigger("click");
+  const details = app.get("details");
+  assert.match(details.textContent, /Unresolved nameUnavailableClass/);
+  assert.match(details.textContent, /ExternalUnknown/);
+  assert.match(details.textContent, /MissingNot established/);
+  assert.ok(details.children.find(child => child.textContent === "No resolved file")?.disabled);
+  node.trigger("dblclick");
+  assert.equal(app.messages.filter(message => message.type === "openFile").length, 0);
+});
+
 test("webview state preserves filters, selection, layout, positions, details, and custom zoom", () => {
   const first = webview(); first.load();
   first.nodes().find((node) => node.children[1]?.textContent === "b.m")!.trigger("click");
@@ -122,6 +144,70 @@ function groupedFixture() {
   return value;
 }
 
+test("entry-point panel requests full original scope, preserves filters and exports host-derived reports", () => {
+  const fixture = entryPointFixture(), app = webview(); app.load(fixture as any);
+  assert.equal(app.get("entry-point-report").disabled, true);
+  app.nodes().find(node => node.attributes["data-node-id"] === "n0")!.trigger("click");
+  app.get("direction").value = "dependencies"; app.get("direction").trigger("change");
+  app.get("depth").value = "1"; app.get("depth").trigger("change"); app.flush();
+  const before = app.state(); assert.equal(app.nodes().length, 2);
+  app.get("entry-point-report").trigger("click");
+  assert.equal(app.messages.at(-1).type, "entryPointReport");
+  assert.equal(app.messages.at(-1).nodeId, "n0"); assert.equal(app.messages.at(-1).depth, undefined);
+  const report = buildEntryPointReport(fixture, "n0");
+  app.send({ type: "entryPointReport", graphKey: JSON.stringify(fixture.metadata), report });
+  assert.match(app.get("details").textContent, /3\/6 original nodes/);
+  assert.match(app.get("details").textContent, /1 reachable notices.*1 outside.*2 unattributed/);
+  assert.match(app.get("details").textContent, /Constructed function names/);
+  assert.equal(app.nodes().length, 2); assert.deepEqual(app.state().controls, before.controls);
+  for (const format of ["Markdown", "JSON"]) {
+    app.get("details").children.find(child => child.textContent === `Export report (${format})`)!.trigger("click");
+    assert.equal(app.messages.at(-1).type, "exportEntryPointReport");
+  }
+  const saved = app.state(), restored = webview(saved); restored.load(fixture as any);
+  assert.equal(restored.messages.at(-1).type, "entryPointReport");
+  assert.equal(restored.messages.at(-1).nodeId, "n0");
+  assert.deepEqual(restored.state().transform, saved.transform);
+});
+
+test("entry-point report ignores stale responses and does not replace another selected node", () => {
+  const fixture = entryPointFixture(), app = webview(); app.load(fixture as any);
+  app.nodes().find(node => node.attributes["data-node-id"] === "n0")!.trigger("click");
+  app.get("entry-point-report").trigger("click");
+  const report = buildEntryPointReport(fixture, "n0");
+  app.send({ type: "entryPointReport", graphKey: "stale", report });
+  assert.match(app.get("details").textContent, /Preparing entry-point/);
+  app.nodes().find(node => node.attributes["data-node-id"] === "n1")!.trigger("click");
+  app.send({ type: "entryPointReport", graphKey: JSON.stringify(fixture.metadata), report });
+  assert.equal(app.get("details").children[0]!.textContent, "scopeLeaf.m");
+  app.nodes().find(node => node.attributes["data-node-id"] === "unknown")!.trigger("click");
+  assert.equal(app.get("entry-point-report").disabled, true);
+  fixture.metadata.graphType = "references"; fixture.metadata.generatedAt = "changed";
+  app.load(fixture as any); app.nodes()[0]!.trigger("click");
+  assert.equal(app.get("entry-point-report").disabled, true);
+});
+
+test("entry-point pagination/navigation and failure retention preserve evidence; successful analysis resets stale report", () => {
+  const fixture = entryPointFixture();
+  for (let i = 0; i < 60; i++) {
+    fixture.nodes.push({ ...fixture.nodes[1]!, id: `extra${i}`, path: `/fixture/extra${i}.m`, relativePath: `extra${i}.m` });
+    fixture.edges.push({ id: `extra-edge${i}`, source: "n1", target: `extra${i}`, kind: "dependency" });
+  }
+  const app = webview(); app.load(fixture as any); app.nodes()[0]!.trigger("click"); app.get("entry-point-report").trigger("click");
+  const key = JSON.stringify(fixture.metadata), report = buildEntryPointReport(fixture, "n0");
+  app.send({ type: "entryPointReport", graphKey: key, report });
+  assert.match(app.get("details").textContent, /Nodes 1–50 of 63/);
+  app.get("details").children.find(child => child.textContent === "Next nodes")!.trigger("click");
+  assert.match(app.get("details").textContent, /Nodes 51–63 of 63/);
+  const open = app.get("details").children.find(child => child.textContent === "extra59.m · 2 hops")!; open.trigger("click");
+  assert.equal(app.messages.at(-1).type, "openFile"); assert.equal(app.messages.at(-1).path, "/fixture/extra59.m");
+  const text = app.get("details").textContent;
+  app.send({ type: "analysisStatus", status: { kind: "failed", message: "Fixture limit", occurredAt: "now" } });
+  assert.equal(app.get("details").textContent, text); assert.equal(app.get("analysis-status").hidden, false);
+  const fresh = structuredClone(fixture); fresh.metadata.generatedAt = "new analysis"; app.load(fresh as any);
+  assert.equal(app.get("entry-point-report").disabled, true); assert.ok(!app.get("details").textContent.includes("Entry-point dependency report"));
+});
+
 function cyclicFixture() {
   const value = groupedFixture();
   value.nodes.push(...["d", "e"].map((id) => ({ ...value.nodes[0], id, label: `${id}.m`, relativePath: `other/${id}.m`, path: `/fixture/other/${id}.m` })));
@@ -129,6 +215,315 @@ function cyclicFixture() {
     .map(([source, target]) => ({ id: `${source}${target}`, source, target, kind: "dependency" }));
   return value;
 }
+
+/** Exercise the real host-derived report document, not a hand-built scope. */
+function prepareReport(app: ReturnType<typeof webview>, value: any, id: string) {
+  const report = buildEntryPointReport(value, id);
+  // Existing selection may be an original member of a collapsed group.
+  const original = app.nodes().find(node => node.attributes["data-node-id"] === id);
+  if (original) original.trigger("click");
+  app.get("entry-point-report").trigger("click");
+  app.send({ type: "entryPointReport", graphKey: JSON.stringify(value.metadata), report });
+  return report;
+}
+
+function showReportView(app: ReturnType<typeof webview>) {
+  app.get("details").children.find(child => child.textContent === "Show report scope in graph")!.trigger("click"); app.flush();
+}
+
+function prepareImpactReport(app: ReturnType<typeof webview>, value: any, id: string) {
+  app.nodes().find(node => node.attributes["data-node-id"] === id)!.trigger("click");
+  app.get("impact-report").trigger("click");
+  const report = buildImpactReport(value, id);
+  app.send({ type: "impactReport", graphKey: JSON.stringify(value.metadata), report });
+  return report;
+}
+
+test("comparison controls use original selected scope without changing graph positions, filters or visual exports", () => {
+  const value = entryPointFixture(), app = webview(); app.load(value as any);
+  app.nodes().find(node => node.attributes["data-node-id"] === "n0")!.trigger("click"); app.flush();
+  const prior = app.state(); app.get("compare-analyses").trigger("click");
+  const info = app.messages.at(-1); assert.equal(info.action, "info");
+  app.send({ type: "comparisonState", graphKey: info.graphKey, requestId: info.requestId, baselinePath: "/exports/baseline.json" });
+  app.get("details").children.find(child => child.textContent === "Compare selected dependency scope")!.trigger("click");
+  const request = app.messages.at(-1); assert.equal(request.scope, "dependencies"); assert.equal(request.nodeId, "n0");
+  const result = { id: "host-snapshot", report: compareAnalyses(createAnalysisBaseline(value), value, { mode: "dependencies", nodeId: "n0" }) };
+  app.send({ type: "comparisonState", graphKey: request.graphKey, requestId: request.requestId, baselinePath: "/exports/baseline.json", result });
+  assert.match(app.get("details").textContent, /Analysis comparison.*Nodes: 0 added.*Scope nodes: 3 → 3/);
+  assert.deepEqual(app.state().positions, prior.positions); assert.deepEqual(app.state().transform, prior.transform);
+  assert.deepEqual(app.state().controls, prior.controls); assert.equal(app.nodes().length, 6);
+  app.get("details").children.find(child => child.textContent === "Export comparison (JSON)")!.trigger("click");
+  assert.equal(app.messages.at(-1).comparisonId, result.id); assert.equal(app.messages.at(-1).action, "export");
+  assert.equal(app.messages.at(-1).data, undefined, "webview must not supply authoritative report records");
+});
+
+test("comparison restoration requests a fresh host report; stale replies cannot replace selection or new analysis", () => {
+  const value = entryPointFixture(), app = webview(); app.load(value as any);
+  app.nodes().find(node => node.attributes["data-node-id"] === "n4")!.trigger("click");
+  app.get("compare-analyses").trigger("click"); const info = app.messages.at(-1);
+  app.send({ type: "comparisonState", graphKey: info.graphKey, requestId: info.requestId, baselinePath: "/exports/baseline.json" });
+  app.get("details").children.find(child => child.textContent === "Compare selected impact scope")!.trigger("click");
+  const request = app.messages.at(-1), result = { id: "snapshot", report: compareAnalyses(createAnalysisBaseline(value), value, { mode: "impact", nodeId: "n4" }) };
+  app.send({ type: "comparisonState", graphKey: request.graphKey, requestId: request.requestId, baselinePath: "/exports/baseline.json", result });
+  const restored = webview(app.state()); restored.load(value as any);
+  const restoredRequest = restored.messages.find(message => message.type === "comparisonAction");
+  assert.equal(restoredRequest.action, "compare"); assert.equal(restoredRequest.scope, "impact"); assert.equal(restoredRequest.nodeId, "n4");
+  restored.send({ type: "comparisonState", graphKey: restoredRequest.graphKey, requestId: restoredRequest.requestId, error: "Baseline file missing" });
+  assert.match(restored.get("details").textContent, /Baseline file missing/); assert.equal(restored.nodes().length, 6);
+  restored.nodes()[0]!.trigger("click");
+  restored.send({ type: "comparisonState", graphKey: restoredRequest.graphKey, requestId: restoredRequest.requestId, result });
+  assert.ok(!restored.get("details").textContent.includes("Analysis comparison"));
+  const fresh = structuredClone(value); fresh.metadata.generatedAt = "new comparison graph"; restored.load(fresh as any);
+  assert.equal(restored.state().detailSelection, undefined);
+});
+
+test("comparison report caps panel lists, retains export capability and refuses symbol graph controls", () => {
+  const value = entryPointFixture(), current = structuredClone(value);
+  for (let i = 0; i < 120; i++) current.problems.push({ severity: "warning", message: `New notice ${i}<script>` });
+  const app = webview(); app.load(current as any); app.get("compare-analyses").trigger("click"); let request = app.messages.at(-1);
+  app.send({ type: "comparisonState", graphKey: request.graphKey, requestId: request.requestId, baselinePath: "/exports/baseline.json" });
+  app.get("details").children.find(child => child.textContent === "Compare entire analysis")!.trigger("click"); request = app.messages.at(-1);
+  app.send({ type: "comparisonState", graphKey: request.graphKey, requestId: request.requestId, baselinePath: "/exports/baseline.json",
+    result: { id: "paged", report: compareAnalyses(createAnalysisBaseline(value), current) } });
+  assert.match(app.get("details").textContent, /Notices newly reported \(120\).*First 100 shown/);
+  assert.equal(app.state().comparisonData, undefined, "full authoritative report must not be serialized into view state");
+  const symbols: any = structuredClone(value); symbols.metadata.graphType = "references"; app.load(symbols);
+  assert.equal(app.get("compare-analyses").disabled, true);
+});
+
+test("impact report ignores display depth, exposes reverse scope and preserves original arrows/export meaning", () => {
+  const value = entryPointFixture(), before = JSON.stringify(value), app = webview(); app.load(value as any);
+  const report = prepareImpactReport(app, value, "n4");
+  assert.match(app.get("details").textContent, /File impact report.*1 direct dependents.*2 total dependents/);
+  const previous = app.state(); showReportView(app);
+  assert.deepEqual(app.nodes().map(node => node.attributes["data-node-id"]), ["n0", "n1", "n4"]);
+  assert.match(app.get("report-scope-text").textContent, /Impact report scope.*incoming dependents.*original arrow directions preserved/);
+  app.nodes().find(node => node.attributes["data-node-id"] === "n0")!.trigger("click");
+  app.get("details").children.find(child => child.textContent === "Show impact path")!.trigger("click");
+  const request = app.messages.at(-1); assert.equal(request.type, "impactDependencyPath");
+  app.send({ ...request, route: buildImpactDependencyPath(report, "n0") });
+  assert.match(app.get("details").textContent, /Impact path.*from scopeEntry.m to MissingInput.mat/);
+  assert.equal(app.get("clear-dependency-path").textContent, "Clear impact path");
+  app.send({ type: "requestExport", format: "svg", scope: "graph", scale: 1 });
+  assert.match(app.messages.at(-1).data, /Impact report scope.*original arrow directions preserved/);
+  assert.match(app.messages.at(-1).data, /class="edge dependency-path"/);
+  app.get("return-report-view").trigger("click"); app.flush();
+  // Same report remains cached, so Return restores details immediately as well.
+  assert.deepEqual(app.state(), previous); assert.equal(JSON.stringify(value), before);
+});
+
+test("dangling endpoints cannot form an invented impact bridge in the renderer scope", () => {
+  const value = entryPointFixture();
+  value.edges.push({ id: "missing-source", source: "absent", target: "n4", kind: "dependency" },
+    { id: "bridge", source: "n2", target: "absent", kind: "dependency" });
+  const app = webview(); app.load(value as any); const report = prepareImpactReport(app, value, "n4");
+  showReportView(app);
+  assert.deepEqual(app.nodes().map(node => node.attributes["data-node-id"]), ["n0", "n1", "n4"]);
+  assert.equal(app.nodes().length, report.nodes.length);
+  assert.match(app.get("summary").textContent, /2\/5 dependencies/);
+});
+
+test("switching report directions for the same seed uses one backup and rejects wrong-direction replies", () => {
+  const value = entryPointFixture(), app = webview(); app.load(value as any); prepareReport(app, value, "n1");
+  const previous = app.state(); showReportView(app); assert.equal(app.nodes().length, 2);
+  prepareImpactReport(app, value, "n1"); showReportView(app);
+  assert.deepEqual(app.nodes().map(node => node.attributes["data-node-id"]), ["n0", "n1"]);
+  assert.deepEqual(app.state().reportScope.previousView, previous);
+  app.send({ type: "entryPointReport", graphKey: JSON.stringify(value.metadata), report: buildEntryPointReport(value, "n1") });
+  assert.match(app.get("details").textContent, /File impact report/);
+  assert.equal(app.state().reportScope.mode, "impact");
+  app.get("return-report-view").trigger("click"); app.flush();
+  assert.deepEqual(app.state().positions, previous.positions); assert.equal(app.state().reportScope, undefined);
+});
+
+test("impact scope and path restore with incoming traversal, retain failure status and clear on new analysis", () => {
+  const value = entryPointFixture(), app = webview(); app.load(value as any);
+  const report = prepareImpactReport(app, value, "n4"); showReportView(app);
+  app.nodes().find(node => node.attributes["data-node-id"] === "n0")!.trigger("click");
+  app.get("details").children.find(child => child.textContent === "Show impact path")!.trigger("click");
+  const first = app.messages.at(-1);
+  app.send({ ...first, route: buildImpactDependencyPath(report, "n0") });
+  const saved = app.state(); saved.reportScope.nodeIds = ["n4", "unknown"];
+  const restored = webview(saved); restored.load(value as any);
+  assert.equal(restored.nodes().length, 3, "membership must be recomputed in the incoming direction");
+  const request = restored.messages.find(message => message.type === "impactDependencyPath");
+  assert.equal(request.nodeId, "n0");
+  // Same IDs in a dependency response cannot overwrite an impact path.
+  restored.send({ ...request, type: "entryPointDependencyPath", route: buildImpactDependencyPath(report, "n0") });
+  assert.ok(!restored.nodes().some(node => node.attributes.class!.includes("dependency-path")));
+  restored.send({ ...request, route: buildImpactDependencyPath(report, "n0") });
+  assert.match(restored.get("details").textContent, /Impact path/);
+  restored.send({ type: "analysisStatus", status: { kind: "failed", message: "Test failure", occurredAt: "now" } });
+  assert.equal(restored.state().reportScope.mode, "impact");
+  restored.get("clear-dependency-path").trigger("click"); restored.flush();
+  restored.send({ ...request, route: buildImpactDependencyPath(report, "n0") });
+  assert.ok(!restored.nodes().some(node => node.attributes.class!.includes("dependency-path")));
+  const fresh = structuredClone(value); fresh.metadata.generatedAt = "fresh-impact"; restored.load(fresh as any);
+  assert.equal(restored.state().reportScope, undefined); assert.equal(restored.nodes().length, 6);
+});
+
+test("Show report scope displays all original nodes/links and Fit, pauses filters, and returns without overview drift", () => {
+  const value = entryPointFixture(), before = JSON.stringify(value), app = webview(); value.nodes[1]!.external = true;
+  app.load(value as any); prepareReport(app, value, "n0");
+  app.get("external").checked = false; app.get("external").trigger("change");
+  app.get("direction").value = "dependencies"; app.get("direction").trigger("change");
+  app.get("depth").value = "1"; app.get("depth").trigger("change");
+  app.get("search").value = "no-match"; app.get("search").trigger("input");
+  app.get("graph").trigger("wheel", { deltaY: -250 }); app.flush();
+  const overview = app.state();
+  for (let i = 0; i < 4; i++) {
+    showReportView(app);
+    assert.deepEqual(app.nodes().map(node => node.attributes["data-node-id"]), ["n0", "n1", "n4"]);
+    assert.match(app.get("summary").textContent, /3\/6 files.*2\/3 dependencies.*report scope/);
+    assert.equal(app.get("direction").value, "report"); assert.equal(app.get("report-scope-status").hidden, false);
+    assert.equal(app.get("search").value, "");
+    for (const id of ["depth", "direction", "grouping", "external", "isolated", "cycle-mode", "cycle-component", "cycles"]) assert.equal(app.get(id).disabled, true, id);
+    const points = app.state().positions;
+    app.get("details").children.find(child => child.textContent === "Fit report scope")!.trigger("click"); app.flush();
+    assert.deepEqual(app.state().positions, points, "Fit relaid out scoped nodes");
+    app.get("layout").value = "circle"; app.get("layout").trigger("change");
+    app.get("return-report-view").trigger("click"); app.flush();
+    assert.equal(app.get("report-scope-status").hidden, true);
+    assert.deepEqual(app.state(), overview, "return changed prior filters, positions, details or custom viewport");
+  }
+  value.nodes[1]!.external = false; assert.equal(JSON.stringify(value), before);
+});
+
+test("report scope temporarily reveals original grouped/cycle-hidden members then restores every coordinate bank", () => {
+  const value = cyclicFixture(), app = webview(); app.load(value); prepareReport(app, value, "a");
+  app.get("grouping").value = "folder"; app.get("grouping").trigger("change");
+  app.get("cycle-mode").value = "isolate"; app.get("cycle-mode").trigger("change");
+  app.get("entry-point-report").trigger("click"); app.flush();
+  const previous = app.state(); assert.equal(app.nodes().length, 4);
+  showReportView(app); assert.equal(app.nodes().length, 5);
+  assert.equal(app.get("cycle-mode").value, "off"); assert.equal(app.get("grouping").value, "none");
+  assert.ok(!app.nodes().some(node => node.attributes["data-group-id"]));
+  assert.deepEqual(app.state().reportScope.previousView, previous);
+  app.get("return-report-view").trigger("click"); app.flush(); assert.deepEqual(app.state(), previous);
+});
+
+test("active report scope and its one-level undo survive cached-state restoration without trusting saved membership", () => {
+  const value = entryPointFixture(), app = webview(); app.load(value as any); prepareReport(app, value, "n0");
+  const previous = app.state(); showReportView(app);
+  app.get("graph").trigger("wheel", { deltaY: -150 }); app.flush(); const saved = app.state();
+  saved.reportScope.nodeIds = ["unknown", "n3"]; // Never authoritative.
+  const restored = webview(saved); restored.load(value as any);
+  restored.send({ type: "entryPointReport", graphKey: JSON.stringify(value.metadata), report: buildEntryPointReport(value, "n0") });
+  assert.equal(restored.get("direction").value, "report"); assert.equal(restored.nodes().length, 3);
+  assert.deepEqual(restored.state().transform, saved.transform); assert.deepEqual(restored.state().positions, saved.positions);
+  assert.equal(restored.state().reportScope.nodeIds, undefined);
+  restored.get("return-report-view").trigger("click"); restored.flush(); assert.deepEqual(restored.state(), previous);
+});
+
+test("dependency path highlights exact original route without filtering, moving, or changing export data", () => {
+  const value = entryPointFixture(), app = webview(); app.load(value as any); prepareReport(app, value, "n0");
+  const prior = app.state(); showReportView(app); const scopedPoints = app.state().positions;
+  app.nodes().find(node => node.attributes["data-node-id"] === "n4")!.trigger("click");
+  app.get("details").children.find(child => child.textContent === "Show dependency path")!.trigger("click");
+  const request = app.messages.at(-1); assert.equal(request.type, "entryPointDependencyPath");
+  const route = buildEntryPointDependencyPath(buildEntryPointReport(value, "n0"), "n4")!;
+  app.send({ ...request, type: "entryPointDependencyPath", route });
+  assert.equal(app.nodes().length, 3); assert.deepEqual(app.state().positions, scopedPoints);
+  assert.deepEqual(app.nodes().filter(node => node.attributes.class!.includes("dependency-path"))
+    .map(node => node.attributes["data-node-id"]), ["n0", "n1", "n4"]);
+  assert.match(app.get("details").textContent, /2 analyzed links.*Via function.*Via data/);
+  assert.equal(app.get("clear-dependency-path").hidden, false);
+  app.get("graph").trigger("click"); app.flush();
+  assert.equal(app.get("clear-dependency-path").hidden, false, "background selection should not clear a pinned path");
+  app.send({ type: "requestExport", format: "svg", scope: "graph", scale: 1 });
+  assert.match(app.messages.at(-1).data, /class="edge dependency-path"/);
+  assert.match(app.messages.at(-1).data, /not the only route or a runtime execution trace/);
+  app.get("clear-dependency-path").trigger("click"); app.flush();
+  assert.equal(app.get("clear-dependency-path").hidden, true);
+  assert.ok(!app.nodes().some(node => node.attributes.class!.includes("dependency-path")));
+  assert.deepEqual(app.state().positions, scopedPoints);
+  app.get("return-report-view").trigger("click"); app.flush(); assert.deepEqual(app.state(), prior);
+});
+
+test("path restoration recomputes evidence and stale responses cannot resurrect cleared or replaced routes", () => {
+  const value = entryPointFixture(), key = JSON.stringify(value.metadata), app = webview();
+  app.load(value as any); prepareReport(app, value, "n0"); showReportView(app);
+  app.nodes().find(node => node.attributes["data-node-id"] === "n1")!.trigger("click");
+  app.get("details").children.find(child => child.textContent === "Show dependency path")!.trigger("click");
+  app.flush(); const first = app.messages.at(-1), saved = app.state();
+  app.get("clear-dependency-path").trigger("click"); app.flush();
+  app.send({ ...first, type: "entryPointDependencyPath", route: buildEntryPointDependencyPath(buildEntryPointReport(value, "n0"), "n1") });
+  assert.equal(app.get("clear-dependency-path").hidden, true);
+  // Only target ID is serialized; never trust a webview-saved list of links.
+  assert.equal(saved.reportScope.pathTargetId, "n1"); assert.equal(saved.reportScope.pathEdges, undefined);
+  const restored = webview(saved); restored.load(value as any);
+  const request = restored.messages.find(message => message.type === "entryPointDependencyPath");
+  assert.equal(request.seedId, "n0"); assert.equal(request.nodeId, "n1"); assert.equal(request.graphKey, key);
+  restored.send({ ...request, type: "entryPointDependencyPath", route: buildEntryPointDependencyPath(buildEntryPointReport(value, "n0"), "n1") });
+  assert.match(restored.get("details").textContent, /1 analyzed link/);
+  assert.equal(restored.get("clear-dependency-path").hidden, false);
+});
+
+test("background click and ordinary node selection cannot lose the active scope or its persistent return control", () => {
+  const value = entryPointFixture(), app = webview(); app.load(value as any); prepareReport(app, value, "n0"); showReportView(app);
+  const svg = app.get("graph"), moved = app.nodes()[0]!;
+  moved.trigger("pointerdown", { clientX: 100, clientY: 100 });
+  svg.trigger("pointermove", { clientX: 250, clientY: 150 }); svg.trigger("pointerup", { clientX: 250, clientY: 150 });
+  svg.trigger("click"); app.flush(); const dragged = app.state().positions;
+  app.nodes().find(node => node.attributes["data-node-id"] === "n1")!.trigger("click");
+  app.get("graph").trigger("click"); app.flush();
+  assert.deepEqual(app.state().positions, dragged, "selection/deselection relaid out dragged report nodes");
+  assert.equal(app.get("direction").value, "report"); assert.equal(app.nodes().length, 3);
+  assert.equal(app.get("report-scope-status").hidden, false);
+  app.get("return-report-view").trigger("click"); app.flush(); assert.equal(app.nodes().length, 6);
+});
+
+test("switching report seeds preserves one original-view backup, and deep scope is never capped at display depth", () => {
+  const value = entryPointFixture();
+  let source = "n1";
+  for (let i = 0; i < 30; i++) {
+    const id = `deep${i}`; value.nodes.push({ ...value.nodes[1]!, id, path: `/fixture/${id}.m`, relativePath: `${id}.m` });
+    value.edges.push({ id: `chain${i}`, source, target: id, kind: "dependency" }); source = id;
+  }
+  const app = webview(); app.load(value as any); prepareReport(app, value, "n0");
+  const previous = app.state(); showReportView(app); assert.equal(app.nodes().length, 33);
+  prepareReport(app, value, "n1"); showReportView(app); assert.equal(app.nodes().length, 32);
+  assert.equal(app.state().reportScope.seedId, "n1"); assert.deepEqual(app.state().reportScope.previousView, previous);
+  assert.equal(app.state().reportScope.previousView.reportScope, undefined);
+  app.get("return-report-view").trigger("click"); app.flush();
+  // The original report's seed is restored immediately; the host can rebuild
+  // its document asynchronously without delaying coordinate restoration.
+  assert.deepEqual(app.state().controls, previous.controls); assert.deepEqual(app.state().positions, previous.positions);
+  assert.deepEqual(app.state().transform, previous.transform); assert.equal(app.state().selectedId, "n0");
+});
+
+test("scope SVG uses only scoped originals, while report JSON requests retain their established full evidence semantics", () => {
+  const value = entryPointFixture(), before = JSON.stringify(value), app = webview(); app.load(value as any); prepareReport(app, value, "n0"); showReportView(app);
+  app.send({ type: "requestExport", format: "svg", scope: "graph", scale: 1 });
+  const visual = app.messages.at(-1); assert.equal(visual.type, "saveVisual"); assert.equal(visual.nodes, 3); assert.equal(visual.edges, 2);
+  assert.match(visual.data, /Entry-point report scope/); assert.ok(!visual.data.includes("scopeOther.m"));
+  app.get("details").children.find(child => child.textContent === "Export report (JSON)")!.trigger("click");
+  assert.equal(app.messages.at(-1).type, "exportEntryPointReport"); assert.equal(app.messages.at(-1).nodeId, "n0");
+  assert.equal(JSON.stringify(value), before);
+});
+
+test("latest failure survives scope return and new successful analysis clears both scope and backup", () => {
+  const value = entryPointFixture(), app = webview(); app.load(value as any); prepareReport(app, value, "n0"); showReportView(app);
+  app.send({ type: "analysisStatus", status: { kind: "cancelled", message: "New cancellation", occurredAt: "now" } });
+  app.get("return-report-view").trigger("click"); app.flush();
+  assert.equal(app.get("analysis-status").hidden, false); assert.match(app.get("analysis-status-text").textContent, /New cancellation/);
+  showReportView(app); const fresh = structuredClone(value); fresh.metadata.generatedAt = "fresh"; app.load(fresh as any);
+  assert.equal(app.get("report-scope-status").hidden, true); assert.equal(app.state().reportScope, undefined);
+  assert.equal(app.get("direction").disabled, false); assert.equal(app.nodes().length, 6);
+});
+
+test("invalid/stale/nested report backups cannot activate a scope", () => {
+  const value = entryPointFixture(), app = webview(); app.load(value as any); const saved = app.state();
+  for (const scope of [
+    { seedId: "unknown", previousView: saved },
+    { seedId: "n0", previousView: { ...saved, graphKey: "other" } },
+    { seedId: "n0", previousView: { ...saved, reportScope: {} } },
+    { seedId: "n0", previousView: { version: 1, graphKey: saved.graphKey } }
+  ]) {
+    const restored = webview({ ...saved, reportScope: scope }); restored.load(value as any);
+    assert.equal(restored.get("report-scope-status").hidden, true); assert.equal(restored.nodes().length, 6);
+  }
+});
 
 test("cycle browser reports components rather than simple cycles and highlighting preserves graph data/viewport", () => {
   const view = webview(), value = cyclicFixture(), saved = JSON.stringify(value); view.load(value);
@@ -167,6 +562,63 @@ test("cycle markings on grouped arrows count only actual cyclic originals and is
   assert.deepEqual(view.nodes().map((node) => node.attributes["data-node-id"]), ["a", "b", "c"]);
   view.get("grouping").value = "package"; view.get("grouping").trigger("change"); view.flush();
   assert.equal(view.nodes().length, 3); assert.ok(!view.nodes().some((node) => node.attributes["data-group-id"]));
+});
+
+test("cycle isolation compacts far-apart islands, Fit is readable, and the overview never drifts", () => {
+  const value = cyclicFixture(), original = JSON.stringify(value), seed = webview(); seed.load(value);
+  const saved = seed.state();
+  saved.controls.layout = "force";
+  // Reproduce a tiny cyclic subset taken from a very tall repository layout.
+  saved.positions = value.nodes.map((node: any, i: number) => [node.id, { x: i * 10000, y: i * 40000 }]);
+  saved.groupPositions = [["none", saved.positions]];
+  const view = webview(saved); view.load(value); const overview = view.state().positions;
+  const isolate = () => { view.get("cycle-mode").value = "isolate"; view.get("cycle-mode").trigger("change"); view.flush(); };
+  isolate(); const compact = view.state();
+  assert.equal(view.nodes().length, 4); assert.ok(compact.transform.k >= 1, "Fit still shrinks a four-node isolated graph");
+  assert.deepEqual(compact.groupPositions, [["none", overview]], "isolation overwrote overview coordinates");
+  const points = new Map<string, any>(compact.positions);
+  assert.ok(Math.max(...[...points.values()].map(point => point.y)) - Math.min(...[...points.values()].map(point => point.y)) < 1500);
+  view.get("fit").trigger("click"); view.flush(); assert.deepEqual(view.state().positions, compact.positions);
+  const restored = webview(view.state()); restored.load(value); assert.deepEqual(restored.state(), view.state());
+  for (let i = 0; i < 3; i++) {
+    view.get("cycle-mode").value = "off"; view.get("cycle-mode").trigger("change"); view.flush();
+    assert.deepEqual(view.state().positions, overview);
+    isolate(); assert.deepEqual(view.state().positions, compact.positions, "repeated isolation drifted");
+  }
+  view.get("cycle-component").value = 'component:"d"'; view.get("cycle-component").trigger("change"); view.flush();
+  assert.equal(view.nodes().length, 1); assert.ok(view.state().transform.k >= 1);
+  view.get("cycle-component").value = "all"; view.get("cycle-component").trigger("change"); view.flush();
+  assert.deepEqual(view.state().positions, compact.positions);
+  for (const kind of ["grid", "hierarchical", "circle", "force"]) {
+    view.get("layout").value = kind; view.get("layout").trigger("change"); view.flush();
+    assert.ok(view.state().transform.k >= .7, `${kind} retained repository-sized gaps`);
+    assert.deepEqual(view.state().groupPositions, [["none", overview]]);
+  }
+  assert.equal(JSON.stringify(value), original);
+});
+
+test("legacy isolated view state is compacted once without discarding overview coordinates", () => {
+  const value = cyclicFixture(), seed = webview(); seed.load(value);
+  const legacy = seed.state(); legacy.controls.cycleMode = "isolate";
+  delete legacy.cyclePositionVersion; delete legacy.cyclePositions;
+  legacy.positions = value.nodes.map((node: any, i: number) => [node.id, { x: 0, y: i * 50000 }]);
+  legacy.groupPositions = [["none", legacy.positions]]; legacy.viewportCustomized = true;
+  const view = webview(legacy); view.load(value);
+  assert.ok(view.state().transform.k >= 1); assert.equal(view.state().viewportCustomized, false);
+  assert.deepEqual(view.state().groupPositions, legacy.groupPositions);
+  assert.equal(view.state().cyclePositionVersion, 1);
+});
+
+test("isolated grouping expansion never repositions known overview nodes when cycles are turned off", () => {
+  const value = cyclicFixture(), view = webview(); view.load(value);
+  view.get("grouping").value = "folder"; view.get("grouping").trigger("change"); view.flush();
+  const before = new Map<string, any>(view.state().positions);
+  view.get("cycle-mode").value = "isolate"; view.get("cycle-mode").trigger("change"); view.flush();
+  view.get("cycle-mode").value = "off"; view.get("cycle-mode").trigger("change"); view.flush();
+  const after = new Map<string, any>(view.state().positions);
+  for (const [id, point] of before) assert.deepEqual(after.get(id), point);
+  assert.equal(view.nodes().length, value.nodes.length);
+  const saved = view.state(), restored = webview(saved); restored.load(value); assert.deepEqual(restored.state(), saved);
 });
 
 test("opposite grouped arrows do not invent cycles and the no-cycle view describes coverage limits", () => {

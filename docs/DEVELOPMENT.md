@@ -2,15 +2,15 @@
 
 ## Toolchain
 
-- Node.js LTS
+- Node.js 22.13+ on the 22 line, or 24+; local release validation uses 26.13.0
 - npm
 - MATLAB
-- VSCodium or VS Code 1.95+
+- Local Windows x64, VSCodium 1.143.17232 and MATLAB R2026b for validated integration; see [SUPPORT.md](../SUPPORT.md)
 
 Install and validate:
 
 ```powershell
-npm install
+npm ci --ignore-scripts
 npm run check
 npm run lint
 npm run test:compile
@@ -29,7 +29,8 @@ npm run package
 The package script type-checks and bundles the extension before invoking `vsce`. Install the resulting VSIX with:
 
 ```powershell
-codium --install-extension .\matlab-viz-0.3.11.vsix
+$extensionVersion = (Get-Content package.json -Raw | ConvertFrom-Json).version
+codium --install-extension ".\matlab-viz-$extensionVersion.vsix"
 ```
 
 ## MATLAB-only validation
@@ -391,6 +392,23 @@ seven restoration phases remain independent regression requirements. Keep
 generated profiles/logs/screenshots/models out of Git and the VSIX. See the
 [grouping guide](GROUPING.md) for expected user behavior and boundaries.
 
+## Compact cycle isolation validation (0.3.15)
+
+The `cycles` native phase also reproduces widely separated overview coordinates
+and verifies that isolated nodes fit inside the canvas with readable labels and
+no overlapping node rectangles. Three Off/Isolate toggles must restore exact
+overview coordinates. Pass `-GraphFile` with a saved JSON graph to exercise its
+real node labels and cycle membership; it is read only, and test coordinates
+are injected solely into the isolated editor profile. The default remains the
+controlled four-node fixture. Inspect `cycle-compact-layout.json` and
+`cycle-compact-layout.png` under the chosen artifact directory.
+
+Node regressions cover complete bounds including self-loops, variable-size
+island packing, all four layouts, repeated isolation, Fit without repositioning,
+legacy isolated-state migration, saved-state restoration, and local placement
+of newly expanded overview members. No MATLAB reanalysis is required for this
+view-only behavior.
+
 ## Cycle explorer validation (0.3.14)
 
 The current Node suite has 137 tests: 136 deterministic tests and the opt-in
@@ -438,12 +456,145 @@ The functions are read/analyzed, never evaluated:
   -Phases @('cycles-calls')
 ```
 
+## Entry-point reports (0.3.16)
+
+Run `npm run check`, `npm run lint`, `npm run test:compile` and `npm test`.
+With `MATLAB_VIZ_TEST_EXECUTABLE` set, the suite also analyzes the four-file
+`test/fixtures/entryPoint` folder and exports a scoped report plus its real
+analysis log without executing the source functions. Controlled graph fixtures
+remain separate from MATLAB's version-dependent dynamic-call resolution.
+
+Native-editor save/restart checks use an isolated profile:
+
+```powershell
+& .\test\host\runRestoration.ps1 `
+  -FixturesRoot 'E:\_Git\matlab-viz\.tools\validation\0.3.5\host-fixtures' `
+  -WorkspaceRoot 'E:\_Git\matlab-viz\test\fixtures\entryPoint' `
+  -ArtifactsRoot 'E:\_Git\matlab-viz\.tools\validation\0.3.16\native-reports-new' `
+  -Phases @('reports', 'restore-reports')
+```
+
+The controlled original cache has three reachable nodes, one reachable notice,
+one outside notice and two unattributed notices. Native tests deliberately set
+display depth to one, inspect the complete report, save JSON/Markdown using real
+dialogs, assert the original cache is byte-for-byte unchanged, then restart and
+compare selection, filters, details and viewport. Engine regressions separately
+check 50,000-hop graphs and generated reachability. Logs/profiles stay ignored.
+See [report semantics](ENTRY_POINT_REPORTS.md) for interpretation boundaries.
+
+Validated locally on 2 November 2026: 159 deterministic Node tests, both opt-in
+real-MATLAB runner/report tests, all 24 MATLAB regressions, and both native-editor
+report/save/restart phases passed. Real editor logs contained report counts and
+both successful saves. The four-file native MATLAB fixture produced its one
+static dependency without executing the sources. A read-only smoke check against
+the saved WEST Project graph reproduced the prior interface audit (68 nodes,
+85 links, zero reachable notices, 134 outside notices); that checkout is not a
+test dependency. The local VSIX was inspected for bundled report code and absence
+of tests, profiles and private validation artifacts. Publication remains on hold.
+
+## Analysis-comparison validation (0.3.20)
+
+The new `test/analysisComparison.test.ts` engine regressions cover versioned
+baseline validation, ID/order-independent matching, file/path/name semantics,
+node/link/notice/product deltas, multiplicity, coverage differences, independent
+scope membership, unavailable baseline seeds, large graphs, snapshot isolation
+and escaped Markdown. Host/webview tests cover file persistence, size/URI limits,
+export snapshot integrity, cancellation, write/read failures, concurrent dialogs,
+Refresh during file operations, direction/scope restoration and stale replies.
+
+Run the standard check/lint/test compile/Node suite, then build and invoke
+`test/host/runRestoration.ps1` with phases `prepare-comparison`, `compare-analyses`,
+`restore-comparison`, `reload-comparison`. Use a fresh artifacts directory, the
+normal small host fixture root and `test/fixtures/entryPoint` workspace. These
+native tests use a private profile, controlled original/changed graph caches,
+actual Save/Load dialogs and Markdown/JSON exports, real log files, application
+restart and actual Reload Window. They verify full baselines from filtered views,
+whole/dependency/impact diffs, Clear-without-delete and invalid-file retry without
+waiting for error dismissal. No MATLAB source is executed. Re-run the existing
+entry-point and impact native phases for shared-panel regression coverage.
+
+## Impact-report validation (0.3.19)
+
+Run `npm run check`, `npm run lint`, `npm run test:compile`, then `npm test`.
+`test/impactReport.test.ts` checks reverse reachability against an independent
+fixed-point oracle, long iterative paths, cycle/self/parallel/dangling evidence,
+count semantics, missing/unresolved names and escaped Markdown. Host/webview
+regressions check exports, logs, direction-aware responses and reversible scopes.
+
+The native editor phases `impact-reports`, `restore-impact-reports` and
+`reload-impact-reports` run together through `test/host/runRestoration.ps1` with
+a fresh artifacts directory and private profile. They exercise actual Markdown,
+JSON, SVG, PNG, DOT and CSV save dialogs, verify the real `MATLAB Viz.log`, compare
+exact views after Return/restart/Reload Window, and leave original cached evidence
+unchanged. For a read-only repository smoke check, pass `-GraphFile` to the
+`impact-reports` phase; it selects a connected original node without hard-coded
+WEST names. The test never runs the source files or starts MATLAB.
+
+## Dependency-path validation (0.3.18)
+
+The path builder reads the entry-point report's original BFS predecessor IDs;
+it never consults a filtered renderer projection or launches MATLAB. Engine
+tests cover equal-length tie order, shorter direct links, zero-hop entry routes,
+unresolved targets and corrupt predecessor rejection. Host tests reject stale
+graph keys, malformed request IDs and out-of-scope targets. Renderer/SVG tests
+cover exact link highlighting, clear/return restoration, target-only saved
+state, vector export markup and stale-response suppression.
+
+For a native-editor regression, run the existing `reports`, `restore-reports`,
+`reload-reports` restoration phases in sequence with an isolated profile. The
+first phase uses actual save dialogs for path SVG/PNG; the latter phases check
+host reconstruction after Reload Window. `reports-repository` can optionally
+read a copy of a saved graph via `-GraphFile`; it must not run source scripts or
+modify the supplied graph cache. See [entry-point reports](ENTRY_POINT_REPORTS.md)
+for interpretation and coverage limits.
+
+## Reversible report-scope validation (0.3.17)
+
+The deterministic suite adds Show/Return tests for external/isolated visibility,
+unbounded depth, grouped and cycle-isolated prior views, separate coordinate
+banks, dragged-node selection, repeated no-drift restoration, switching seeds,
+failure retention, stale/malformed saved scope, visual exports and restart state.
+TypeScript, ESLint and the full deterministic suite should pass before packaging.
+This is a renderer-only feature; it does not run MATLAB or change graph analysis.
+
+The native `reports`/`restore-reports` suite now leaves an active scope for the
+additional `reload-reports` phase:
+
+```powershell
+& .\test\host\runRestoration.ps1 `
+  -FixturesRoot 'E:\_Git\matlab-viz\.tools\validation\0.3.5\host-fixtures' `
+  -WorkspaceRoot 'E:\_Git\matlab-viz\test\fixtures\entryPoint' `
+  -ArtifactsRoot 'E:\_Git\matlab-viz\.tools\validation\0.3.17\native-scope-new' `
+  -Phases @('reports', 'restore-reports', 'reload-reports')
+```
+
+The tests use actual report controls, all five graph export formats, both report
+formats, three exact Show/Return comparisons, application restart and actual
+Reload Window. SVG/PNG show the scope while JSON/DOT/CSV retain the original
+analysis. Return works after both restart mechanisms. The original controlled
+cache remains byte-for-byte unchanged. These tests need no WEST checkout.
+
+An optional `reports-repository` phase accepts `-GraphFile` with a saved WEST
+graph and copies it into its isolated editor cache only. It compares the native
+scope's node/link counts to the host report, checks every original node fits the
+canvas, restores the exact previous view, and confirms the supplied source file
+is unchanged. It does not run MATLAB, open source files or modify the repository.
+Use a fresh artifacts/profile directory for this independent phase.
+
+Local validation on 2 November 2026 passed 167 deterministic tests and the native
+report/export, application-restart, Reload Window and saved-WEST-graph phases.
+The latter displayed 68 original nodes and 85 links, checked all node rectangles
+inside Fit bounds, restored the overview exactly, and left the supplied cache
+unchanged. The two opt-in MATLAB-process tests were not required for this
+renderer-only change; MATLAB analysis code is unchanged from 0.3.16. A native
+save-dialog race was fixed in the test harness by waiting for the typed filename
+to remain stable before Enter. Failed and successful artifacts remain local.
+
 ## Release checklist
 
-1. Choose and add a distribution license.
-2. Update `CHANGELOG.md` and the version in `package.json`.
-3. Run TypeScript, unit, MATLAB Code Analyzer, and integration tests.
-4. Build and inspect the VSIX contents.
-5. Install the VSIX into a clean VSCodium profile.
-6. Test Project and folder modes on Windows; test folder mode on macOS/Linux when available.
-7. Tag the commit and attach the VSIX to the GitHub release.
+Use the current [local release procedure and publication gates](RELEASE.md).
+MIT is selected and included. A clean reviewed source commit/tag, locked clean
+build, package checks/hash verification and tested-platform claims are required.
+Native/editor/MATLAB evidence is distinct from portable unit/CI checks. Do not
+push, change visibility, create a GitHub release or upload a VSIX without explicit
+authorization; public publishing is still on hold.

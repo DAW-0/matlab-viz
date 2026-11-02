@@ -39,6 +39,42 @@ export async function run(): Promise<void> {
       const view = await debug.graph(), workbench = await debug.workbench();
       const change = (id: string, value: string) => view.evaluate(`const control=document.getElementById(${JSON.stringify(id)});control.value=${JSON.stringify(value)};control.dispatchEvent(new Event('change'));return true;`);
       const count = () => view.evaluate("return document.querySelectorAll('g.node').length;");
+      // Exercise the reported WEST-scale gap in real Chromium. An optional
+      // saved graph is read only; synthetic coordinates live solely in this
+      // owned test profile. No MATLAB analysis or user source is executed.
+      const compactInput = process.env.MATLAB_VIZ_TEST_GRAPH
+        ? validateGraph(JSON.parse(await fs.readFile(process.env.MATLAB_VIZ_TEST_GRAPH, "utf8"))) : original;
+      const compactGraph = { ...compactInput, metadata: { ...compactInput.metadata, generatedAt: "cycle-layout-reproduction" } };
+      const overviewPositions = compactGraph.nodes.map((node, i) => [node.id, { x: i * 10000, y: i * 40000 }]);
+      const state = { version: 1, geometryVersion: 1, graphKey: JSON.stringify(compactGraph.metadata),
+        controls: { layout: "force", grouping: "none", direction: "all", cycleMode: "off", cycleComponent: "all", external: true, isolated: true, depth: 3 },
+        positions: overviewPositions, groupPositions: [["none", overviewPositions]] };
+      await view.evaluate(`window.postMessage({type:'setGraph',graph:${JSON.stringify(compactGraph)},viewState:${JSON.stringify(state)}},'*');return true;`); await pause();
+      const overview = await view.evaluate("return [...document.querySelectorAll('g.node')].map(node=>[node.dataset.nodeId,node.getAttribute('transform')]);");
+      await change("cycle-mode", "highlight");
+      const expectedCyclic = await view.evaluate("return document.querySelectorAll('g.node.cyclic').length;");
+      assert.ok(expectedCyclic > 0); await change("cycle-mode", "isolate");
+      await view.evaluate("document.getElementById('fit').click();return true;");
+      const packed = await view.evaluate(`const canvas=document.getElementById('graph').getBoundingClientRect();
+        return [...document.querySelectorAll('g.node')].map(node=>{const box=node.getBoundingClientRect(),label=node.querySelector('text').getBoundingClientRect();
+        return {id:node.dataset.nodeId,x:box.x-canvas.x,y:box.y-canvas.y,width:box.width,height:box.height,labelHeight:label.height,
+        inside:box.left>=canvas.left-1&&box.right<=canvas.right+1&&box.top>=canvas.top-1&&box.bottom<=canvas.bottom+1};});`);
+      assert.equal(packed.length, expectedCyclic); assert.ok(packed.every((node: any) => node.inside && node.labelHeight >= 8), JSON.stringify(packed));
+      for (let a = 0; a < packed.length; a++) for (let b = a + 1; b < packed.length; b++) {
+        const x = packed[a], y = packed[b];
+        assert.ok(x.x + x.width <= y.x || y.x + y.width <= x.x || x.y + x.height <= y.y || y.y + y.height <= x.y);
+      }
+      const workbenchCapture = await debug.workbench();
+      const packedScreenshot = await workbenchCapture.request("Page.captureScreenshot", { format: "png" });
+      await fs.writeFile(path.join(artifacts, "cycle-compact-layout.png"), Buffer.from(packedScreenshot.data, "base64"));
+      await fs.writeFile(path.join(artifacts, "cycle-compact-layout.json"), JSON.stringify({ nodes: compactGraph.nodes.length, isolated: packed }, null, 2));
+      for (let i = 0; i < 3; i++) {
+        await change("cycle-mode", "off");
+        assert.deepEqual(await view.evaluate("return [...document.querySelectorAll('g.node')].map(node=>[node.dataset.nodeId,node.getAttribute('transform')]);"), overview);
+        await change("cycle-mode", "isolate");
+      }
+      log(`Compact isolation: ${expectedCyclic} cyclic nodes from ${compactGraph.nodes.length} graph nodes remain readable, on-canvas and non-overlapping after Fit; three toggles preserve exact overview coordinates`);
+      await view.evaluate(`window.postMessage({type:'setGraph',graph:${JSON.stringify(original)},defaultLayout:'grid'},'*');return true;`); await pause();
       assert.equal(await view.evaluate("return document.getElementById('cycles').textContent;"), "Cycles (2)");
       await change("cycle-mode", "highlight");
       assert.equal(await count(), 4); assert.equal(await view.evaluate("return document.querySelectorAll('g.node.cyclic').length;"), 4);

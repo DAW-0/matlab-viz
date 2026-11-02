@@ -12,6 +12,9 @@
   let groupIndex = { groups: new Map(), membership: new Map() };
   let expandedGroups = new Set();
   let positionSets = new Map();
+  // Isolation is a separate coordinate space. Dragging, grouping and changing
+  // layout there must never overwrite the user's full-graph arrangement.
+  let cyclePositionSets = new Map();
   let renderedData = { nodes: [], edges: [] };
   const cycleApi = globalThis.MatlabVizCycles;
   const cycleMode = document.getElementById("cycle-mode");
@@ -28,6 +31,23 @@
   const external = document.getElementById("external");
   const isolated = document.getElementById("isolated");
   const problemsButton = document.getElementById("problems");
+  const entryPointReportButton = document.getElementById("entry-point-report");
+  const impactReportButton = document.getElementById("impact-report");
+  const comparisonButton = document.getElementById("compare-analyses");
+  let comparisonData;
+  let comparisonRequestId = 0;
+  let comparisonAction;
+  let comparisonPending = false;
+  let entryPointReport;
+  let reportNodePage = 0;
+  // One reversible view transaction, not another analyzed graph. The original
+  // view is detached before relayout so drags here cannot mutate its points.
+  let reportScope;
+  const reportScopeStatus = document.getElementById("report-scope-status");
+  const reportScopeText = document.getElementById("report-scope-text");
+  const clearDependencyPathButton = document.getElementById("clear-dependency-path");
+  let dependencyPath;
+  let pathRequestId = 0;
   const tooltip = document.getElementById("tooltip");
   const analysisBanner = document.getElementById("analysis-status");
   const analysisBannerText = document.getElementById("analysis-status-text");
@@ -173,9 +193,8 @@
   // from graph drawing; no DOM sizes are changed by the observer callback.
   if (typeof ResizeObserver !== "undefined") new ResizeObserver(resizeCanvasSoon).observe(document.getElementById("canvas-wrap"));
 
-  function saveState() {
-    if (!graph) return;
-    vscode.setState({
+  function captureViewState() {
+    return {
       version: 1, geometryVersion: 1, graphKey,
       controls: { search: search.value, layout: layout.value, grouping: grouping.value || "none", direction: direction.value,
         cycleMode: cycleMode.value || "off", cycleComponent: cycleComponent.value || "all",
@@ -183,8 +202,20 @@
       cycleMemberPage,
       selectedId, detailSelection, positions: [...positions], expandedGroups: [...expandedGroups],
       groupPositions: [...positionSets].map(([mode, points]) => [mode, [...points]]),
+      cyclePositionVersion: 1,
+      cyclePositions: [...cyclePositionSets].map(([mode, points]) => [mode, [...points]]),
       transform: { ...transform }, viewportCustomized, detailsWidth, analysisStatus
-    });
+    };
+  }
+
+  function saveState() {
+    if (!graph) return;
+    // Save the seed and ONE ordinary-view backup. Membership is recomputed
+    // from original links on restore, never trusted from serialized IDs.
+    vscode.setState({ ...captureViewState(), reportScope: reportScope
+      ? { seedId: reportScope.seedId, previousView: reportScope.previousView,
+        ...(reportScope.mode === "impact" ? { mode: "impact" } : {}),
+        pathTargetId: reportScope.pathTargetId } : undefined });
   }
 
   function saveStateSoon() {
@@ -222,6 +253,7 @@
       direction.value = "all";
       for (const id of cycleMarks.nodes) { const owner = groupIndex.membership.get(id); if (owner) expandedGroups.add(owner); }
     }
+    selectPositionMap();
     const ids = new Set([...graph.nodes.map((node) => node.id), ...groupIndex.groups.keys()]);
     selectedId = ids.has(value.selectedId) ? value.selectedId : undefined;
     if (!selectedId) direction.value = "all";
@@ -243,16 +275,48 @@
           && point[1] && Number.isFinite(point[1].x) && Number.isFinite(point[1].y))));
       }
     }
-    positionSets.set(grouping.value, positions);
+    if (value.geometryVersion === 1 && Array.isArray(value.cyclePositions)) {
+      for (const entry of value.cyclePositions) {
+        if (!Array.isArray(entry) || !["none", "folder", "package"].includes(entry[0]) || !Array.isArray(entry[1])) continue;
+        const valid = new Set([...graph.nodes.map((node) => node.id), ...groupingApi.index(graph, entry[0]).groups.keys()]);
+        cyclePositionSets.set(entry[0], new Map(entry[1].filter((point) => Array.isArray(point) && valid.has(point[0])
+          && point[1] && Number.isFinite(point[1].x) && Number.isFinite(point[1].y))));
+      }
+    }
+    const bank = cycleMode.value === "isolate" ? cyclePositionSets : positionSets;
+    bank.set(grouping.value, positions);
+    // Older isolated states stored overview-scale coordinates. Migrate them
+    // once, while preserving those coordinates as the best available overview.
+    const migrateIsolation = cycleMode.value === "isolate" && value.cyclePositionVersion !== 1;
+    if (migrateIsolation) {
+      if (!positionSets.has(grouping.value)) positionSets.set(grouping.value, new Map([...positions].map(([id, point]) => [id, { ...point }])));
+      positions.clear();
+    }
     const view = value.transform;
     if (value.geometryVersion === 1 && view && Number.isFinite(view.x) && Number.isFinite(view.y) && Number.isFinite(view.k) && view.k > 0 && view.k <= 1e6) {
       transform = { x: view.x, y: view.y, k: view.k };
-      viewportCustomized = value.viewportCustomized === true;
+      viewportCustomized = !migrateIsolation && value.viewportCustomized === true;
     }
     const selection = value.detailSelection;
+    const scope = value.reportScope;
+    if (scope && (scope.mode === undefined || scope.mode === "impact") && reportAvailable(scope.seedId) && scope.previousView?.version === 1
+      && scope.previousView.graphKey === graphKey && !scope.previousView.reportScope
+      && ["all", "dependencies", "impact"].includes(scope.previousView.controls?.direction)) {
+      reportScope = { seedId: scope.seedId, previousView: scope.previousView,
+        ...(scope.mode === "impact" ? { mode: "impact" } : {}),
+        nodeIds: trace(scope.seedId, scope.mode === "impact" ? "impact" : "dependencies", Infinity) };
+      // Persist only the target identity. The host reconstructs route evidence
+      // from the current original graph when the editor is restored.
+      if (reportScope.nodeIds.has(scope.pathTargetId)) reportScope.pathTargetId = scope.pathTargetId;
+      direction.value = "report";
+    }
     if (selection && ((selection.kind === "node" && ids.has(selection.id))
       || (selection.kind === "edge" && currentGraph().edges.some((edge) => edge.id === selection.id))
       || (selection.kind === "group" && groupIndex.groups.has(selection.id))
+      || (selection.kind === "entryPointReport" && (selection.mode === undefined || selection.mode === "impact") && graph.nodes.some(node => node.id === selection.id && !node.unresolved))
+      || (selection.kind === "dependencyPath" && reportScope?.nodeIds.has(selection.id))
+      || (selection.kind === "comparison" && (selection.scope === undefined || selection.scope === "all"
+        || ["dependencies", "impact"].includes(selection.scope) && reportAvailable(selection.id)))
       || selection.kind === "cycles" || selection.kind === "groups" || selection.kind === "problems")) detailSelection = selection;
     return true;
   }
@@ -296,6 +360,12 @@
     else if (detailSelection?.kind === "group") showGroup(groupIndex.groups.get(detailSelection.id));
     else if (detailSelection?.kind === "groups") showGroups();
     else if (detailSelection?.kind === "cycles") showCycles();
+    else if (detailSelection?.kind === "entryPointReport") requestEntryPointReport(detailSelection.id, detailSelection.mode);
+    else if (detailSelection?.kind === "dependencyPath") {
+      if (dependencyPath?.targetId === detailSelection.id) showDependencyPath();
+      else showPendingDependencyPath();
+    }
+    else if (detailSelection?.kind === "comparison") requestComparison(detailSelection.scope ? "compare" : "info", detailSelection.scope);
   }
 
   function element(name, attributes = {}) {
@@ -318,19 +388,19 @@
       degree.set(edge.source, (degree.get(edge.source) || 0) + 1);
       degree.set(edge.target, (degree.get(edge.target) || 0) + 1);
     }
-    let allowed = new Set(graph.nodes
+    let allowed = reportScope ? reportScope.nodeIds : new Set(graph.nodes
       .filter((node) => external.checked || !node.external)
       .filter((node) => isolated.checked || (degree.get(node.id) || 0) > 0)
       .map((node) => node.id));
-    if (selectedId && direction.value !== "all") {
+    if (!reportScope && selectedId && direction.value !== "all") {
       const traced = trace(selectedId, direction.value, Number(depth.value) || 3);
       allowed = new Set([...allowed].filter((id) => traced.has(id)));
     }
-    if (cycleMode.value === "isolate") allowed = new Set([...allowed].filter((id) => cycleMarks.nodes.has(id)));
+    if (!reportScope && cycleMode.value === "isolate") allowed = new Set([...allowed].filter((id) => cycleMarks.nodes.has(id)));
     const data = {
       nodes: graph.nodes.filter((node) => allowed.has(node.id)),
       edges: graph.edges.filter((edge) => allowed.has(edge.source) && allowed.has(edge.target)
-        && (cycleMode.value !== "isolate" || cycleMarks.edges.has(edge.id)))
+        && (reportScope || cycleMode.value !== "isolate" || cycleMarks.edges.has(edge.id)))
     };
     return groupingApi.project(data, groupIndex, expandedGroups, graphTerms().items);
   }
@@ -368,8 +438,11 @@
   }
 
   function applyCycleView() {
+    // The complete report scope must not be silently intersected with cycles.
+    if (reportScope) { updateDepthControl(); return; }
     const wasIsolated = renderedCycleMode === "isolate";
     refreshCycleMarks();
+    selectPositionMap();
     if (cycleMode.value === "isolate") {
       // Isolation is an independent view, not a trace seeded at an arbitrary
       // selection. Reveal its ORIGINAL members rather than hiding every loop
@@ -377,8 +450,27 @@
       direction.value = "all";
       const expanded = new Set(expandedGroups);
       for (const id of cycleMarks.nodes) { const owner = groupIndex.membership.get(id); if (owner) expanded.add(owner); }
-      if (!setExpandedGroups(expanded)) render();
-    } else render();
+      setExpandedGroups(expanded);
+      render(true);
+    } else {
+      if (wasIsolated) {
+        // Isolation can reveal previously collapsed members. Give only those
+        // new overview nodes local slots near their old group anchor; a missing
+        // coordinate must not trigger a global layout of already arranged nodes.
+        const data = currentGraph(); data.nodes.forEach(nodeSize);
+        const fixed = data.nodes.filter((node) => positions.has(node.id)), missing = new Map();
+        for (const node of data.nodes) if (!positions.has(node.id)) {
+          const owner = groupIndex.membership.get(node.id);
+          if (!missing.has(owner)) missing.set(owner, []);
+          missing.get(owner).push(node);
+        }
+        if (fixed.length || positions.size) for (const [owner, nodes] of missing) {
+          geometry.placeCluster(nodes, positions.get(owner) || centerOf(fixed), fixed, positions, sizes);
+          fixed.push(...nodes);
+        }
+      }
+      render();
+    }
     pointerNodeId = undefined; updateDepthControl();
     if (cycleMode.value === "isolate" || wasIsolated) fit();
     else if (cycleMode.value === "highlight" && cycleComponent.value !== "all") {
@@ -393,6 +485,12 @@
     showCycles();
   }
 
+  function selectPositionMap() {
+    const bank = cycleMode.value === "isolate" ? cyclePositionSets : positionSets;
+    positions = bank.get(grouping.value) || new Map();
+    bank.set(grouping.value, positions);
+  }
+
   function showCycles() {
     detailSelection = { kind: "cycles" }; details.replaceChildren();
     const heading = document.createElement("h2"); heading.textContent = `Cyclic components (${cycleIndex.components.length})`; details.appendChild(heading);
@@ -403,7 +501,7 @@
     const original = currentGraph().original, visible = new Set(original.nodes.map((node) => node.id));
     const visibleEdges = new Set(original.edges.map((edge) => edge.id));
     const status = document.createElement("p"); status.textContent = `${[...cycleMarks.nodes].filter((id) => visible.has(id)).length}/${cycleMarks.nodes.size} selected component members and ${[...cycleMarks.edges].filter((id) => visibleEdges.has(id)).length}/${cycleMarks.edges.size} internal links currently visible. Filters/tracing may hide part of a loop; highlighting never implies a complete visible loop.`; details.appendChild(status);
-    const button = (label, action) => { const value = document.createElement("button"); value.textContent = label; value.addEventListener("click", action); details.appendChild(value); };
+    const button = (label, action) => { const value = document.createElement("button"); value.textContent = label; value.addEventListener("click", action); details.appendChild(value); return value; };
     button("Highlight selection", () => { cycleMode.value = "highlight"; applyCycleView(); });
     button("Isolate selection", () => { cycleMode.value = "isolate"; applyCycleView(); });
     button("Turn cycle view off", () => { cycleMode.value = "off"; applyCycleView(); });
@@ -428,7 +526,8 @@
       const page = document.createElement("p"); page.textContent = `Members ${cycleMemberPage * 100 + 1}–${Math.min(component.nodes.length, (cycleMemberPage + 1) * 100)} of ${component.nodes.length}. Source navigation does not execute MATLAB.`; details.appendChild(page);
       if (cycleMemberPage > 0) button("Previous 100 members", () => { cycleMemberPage--; showCycles(); });
       for (const node of component.nodes.slice(cycleMemberPage * 100, (cycleMemberPage + 1) * 100)) {
-        button(`Open: ${node.relativePath || node.label}`, () => vscode.postMessage({ type: "openFile", path: node.path, line: node.line, character: node.character }));
+        const open = button(`${node.unresolved ? "Unresolved" : "Open"}: ${node.relativePath || node.label}`, () => openNode(node));
+        open.disabled = Boolean(node.unresolved);
       }
       if ((cycleMemberPage + 1) * 100 < component.nodes.length) button("Next 100 members", () => { cycleMemberPage++; showCycles(); });
     }
@@ -457,6 +556,7 @@
 
   function openNode(node) {
     if (groupIndex.groups.has(node.id)) toggleGroup(node.id);
+    else if (node.unresolved) showNode(node);
     else vscode.postMessage({ type: "openFile", path: node.path, line: node.line, character: node.character });
   }
 
@@ -568,7 +668,12 @@
 
   function trace(start, mode, maximumDepth) {
     const adjacency = new Map();
+    const originalIds = new Set(graph.nodes.map(node => node.id));
     for (const edge of graph.edges) {
+      // An absent endpoint is incomplete evidence, not a traversable bridge.
+      // This matches host reports and prevents a malformed/dangling link from
+      // pulling unrelated files into a dependency or impact scope.
+      if (!originalIds.has(edge.source) || !originalIds.has(edge.target)) continue;
       const from = mode === "dependencies" ? edge.source : edge.target;
       const to = mode === "dependencies" ? edge.target : edge.source;
       if (!adjacency.has(from)) adjacency.set(from, []);
@@ -598,11 +703,24 @@
 
   function updateDepthControl() {
     const functionGraph = isFunctionGraph();
-    direction.disabled = cycleMode.value === "isolate";
-    direction.title = cycleMode.value === "isolate" ? "Cycle isolation selects component members. Switch to Highlight cycles or Cycles Off to use ordinary tracing." : "Trace original relationships from the selected node or group.";
+    if (reportScope) {
+      direction.value = "report"; cycleMode.value = "off";
+      external.checked = true; isolated.checked = true;
+    }
+    reportScopeStatus.hidden = !reportScope;
+    clearDependencyPathButton.hidden = !reportScope?.pathTargetId;
+    clearDependencyPathButton.textContent = `Clear ${pathLabel()}`;
+    const seed = reportScope && graph.nodes.find(node => node.id === reportScope.seedId);
+    reportScopeText.textContent = seed ? `${scopeIsImpact() ? "Impact report scope" : "Report scope"}: ${seed.relativePath || seed.label} — all analyzed ${scopeIsImpact() ? "incoming dependents; original arrow directions preserved" : "outgoing dependencies"}. Display filters are paused.${dependencyPath ? ` One ${dependencyPath.hops}-link route highlighted.` : ""}` : "";
+    grouping.disabled = external.disabled = isolated.disabled = cyclesButton.disabled = Boolean(reportScope);
+    cycleMode.disabled = cycleComponent.disabled = Boolean(reportScope) || cycleIndex.components.length === 0;
+    direction.disabled = Boolean(reportScope) || cycleMode.value === "isolate";
+    direction.title = reportScope ? "Showing the complete analyzed report scope. Return to previous view to use ordinary tracing."
+      : cycleMode.value === "isolate" ? "Cycle isolation selects component members. Switch to Highlight cycles or Cycles Off to use ordinary tracing." : "Trace original relationships from the selected node or group.";
     depthText.textContent = functionGraph ? "Analysis depth" : "Trace depth";
-    depth.disabled = !functionGraph && (direction.value === "all" || cycleMode.value === "isolate");
-    depthLabel.title = functionGraph
+    depth.disabled = Boolean(reportScope) || !functionGraph && (direction.value === "all" || cycleMode.value === "isolate");
+    depthLabel.title = reportScope ? `Report scope includes all analyzed ${scopeIsImpact() ? "dependent" : "dependency"} hops, without a display-depth limit. Return to previous view to use ordinary filters.`
+      : functionGraph
       ? "Maximum caller/callee analysis depth. Refresh rebuilds the hierarchy to this depth."
       : cycleMode.value === "isolate" ? "Cycle isolation includes component members independently of trace depth. Switch to Highlight cycles or Cycles Off to trace."
       : direction.value === "all"
@@ -660,14 +778,270 @@
     }
   }
 
+  function reportAvailable(id) {
+    return graph && (!graph.metadata.graphType || graph.metadata.graphType === "files")
+      && graph.nodes.some(node => node.id === id && !node.unresolved);
+  }
+
+  function requestComparison(action, scope = detailSelection?.scope) {
+    if (!graph || detailSelection?.kind !== "comparison") return;
+    comparisonRequestId++; comparisonAction = action; comparisonPending = true;
+    if (action === "compare") detailSelection.scope = scope || "all";
+    showComparison(); saveStateSoon();
+    vscode.postMessage({ type: "comparisonAction", graphKey, requestId: comparisonRequestId, action,
+      scope, nodeId: detailSelection.id });
+  }
+
+  function showComparison() {
+    details.replaceChildren();
+    const text = (tag, value, parent = details) => { const item = document.createElement(tag); item.textContent = value; parent.appendChild(item); return item; };
+    const button = (label, action) => { const item = text("button", label); item.disabled = comparisonPending; item.addEventListener("click", action); return item; };
+    text("h2", "Analysis comparison");
+    text("p", "Compare complete original file analysis evidence, independently of graph filters. Saving a baseline or comparing does not run MATLAB or change the graph.");
+    text("p", "After editing code, Refresh the analysis before comparing. This compares saved analysis evidence, not live file contents.");
+    if (comparisonPending) text("p", "Working on baseline/comparison…");
+    if (comparisonData?.error) text("p", `${comparisonData.result ? "Previous comparison retained; latest operation failed. " : ""}${comparisonData.error}`);
+    text("p", comparisonData?.baselinePath ? `Baseline file: ${comparisonData.baselinePath}` : "No baseline selected. Save the current complete analysis or load a previously saved baseline.");
+    button("Save current analysis as baseline", () => requestComparison("save"));
+    button("Load analysis baseline", () => requestComparison("load"));
+    button("Clear baseline selection (keep file)", () => requestComparison("clear")).disabled ||= !comparisonData?.baselinePath;
+    button("Compare entire analysis", () => requestComparison("compare", "all")).disabled ||= !comparisonData?.baselinePath;
+    const selected = graph.nodes.find(node => node.id === detailSelection?.id && !node.unresolved);
+    text("p", selected ? `Selected for scope comparison: ${selected.relativePath || selected.path}` : "Select an original file node, then reopen Compare analyses to compare its dependency or impact scope.");
+    for (const [mode, label] of [["dependencies", "Compare selected dependency scope"], ["impact", "Compare selected impact scope"]]) {
+      button(label, () => requestComparison("compare", mode)).disabled ||= !selected || !comparisonData?.baselinePath;
+    }
+    const result = comparisonData?.result, report = result?.report;
+    if (!report) return;
+    text("p", `Baseline analysis: ${report.baseline.analysis.generatedAt}; baseline saved: ${report.baseline.savedAt}. Current analysis: ${report.current.generatedAt}.`);
+    text("p", "Recorded evidence differences only—not a source-content diff, runtime test, or regression verdict. Unchanged metadata does not mean unchanged code.");
+    for (const format of ["md", "json"]) button(`Export comparison (${format === "md" ? "Markdown" : "JSON"})`, () => {
+      comparisonRequestId++; comparisonAction = "export"; comparisonPending = true; showComparison();
+      vscode.postMessage({ type: "comparisonAction", graphKey, requestId: comparisonRequestId, action: "export", comparisonId: result.id, format });
+    });
+    const coverage = text("details", ""); coverage.open = true;
+    text("summary", `Recorded coverage differences (${report.coverageDifferences.length})`, coverage);
+    if (!report.coverageDifferences.length) text("p", "No recorded field differences. Other options, path state and exclusions may still differ.", coverage);
+    for (const item of report.coverageDifferences) text("p", `${item.field}: ${JSON.stringify(item.before)} → ${JSON.stringify(item.after)}`, coverage);
+    const limits = text("details", ""); text("summary", "Coverage and interpretation limits", limits);
+    for (const item of report.limitations) text("p", item, limits);
+    const list = (title, items, describe) => {
+      const section = text("details", ""); text("summary", `${title} (${items.length})`, section);
+      for (const item of items.slice(0, 100)) text("p", describe(item), section);
+      if (items.length > 100) text("p", "First 100 shown; both comparison exports retain every record.", section);
+    };
+    const delta = (title, value) => {
+      text("h3", title);
+      text("p", `Nodes: ${value.nodes.added.length} added · ${value.nodes.removed.length} removed · ${value.nodes.changed.length} metadata changed · ${value.nodes.unchanged} unchanged metadata.`);
+      text("p", `Relationships: ${value.links.added.length} added · ${value.links.removed.length} removed · ${value.links.changed.length} evidence changed · ${value.links.unchanged} unchanged.`);
+      list("Added nodes", value.nodes.added, node => `${node.path}${node.unresolved ? " (unresolved name)" : ""}`);
+      list("Removed nodes", value.nodes.removed, node => `${node.path}${node.unresolved ? " (unresolved name)" : ""}`);
+      list("Node metadata changes", value.nodes.changed, item => `${item.after.path}: ${item.fields.join(", ")}. Before: ${JSON.stringify(item.before)}; after: ${JSON.stringify(item.after)}`);
+      const link = item => `${item.source} → ${item.target} (${item.kind}): ${JSON.stringify(item.records)}`;
+      list("Added relationships", value.links.added, link); list("Removed relationships", value.links.removed, link);
+      list("Relationship evidence changes", value.links.changed, item => `${link(item.after)}; before: ${JSON.stringify(item.before.records)}`);
+    };
+    delta("Entire analysis", report);
+    if (report.scope) {
+      text("h3", `Selected ${report.scope.mode} scope: ${report.scope.selectedFile.relativePath || report.scope.selectedFile.path}`);
+      if (report.scope.status === "compared") {
+        text("p", `Scope nodes: ${report.scope.beforeNodes} → ${report.scope.afterNodes}; original links: ${report.scope.beforeLinks} → ${report.scope.afterLinks}. All analyzed hops; arrows are unchanged.`);
+        delta("Scope differences", report.scope);
+      } else text("p", "Selected file was absent from the baseline. Its previous scope is unavailable, not assumed empty; no scope delta was invented.");
+    }
+    list("Notices newly reported", report.notices.added, item => JSON.stringify(item));
+    list("Notices no longer reported (not proven resolved)", report.notices.removed, item => JSON.stringify(item));
+    list("Product records added", report.products.added, item => JSON.stringify(item));
+    list("Product records removed", report.products.removed, item => JSON.stringify(item));
+    list("All baseline notices (including unchanged)", report.analysisNotices.baseline, item => JSON.stringify(item));
+    list("All current notices (including unchanged)", report.analysisNotices.current, item => JSON.stringify(item));
+  }
+
+  function isImpactReport(report = entryPointReport) { return report?.kind === "file-impact"; }
+  function reportSeed(report = entryPointReport) { return isImpactReport(report) ? report?.selectedFile : report?.entryPoint; }
+  function scopeIsImpact() { return reportScope?.mode === "impact"; }
+  function pathLabel() { return scopeIsImpact() ? "impact path" : "dependency path"; }
+  function reportSelection(id, impact) { return { kind: "entryPointReport", id, ...(impact ? { mode: "impact" } : {}) }; }
+
+  function requestEntryPointReport(id, mode) {
+    if (!reportAvailable(id)) return;
+    const impact = mode === "impact";
+    detailSelection = reportSelection(id, impact);
+    reportNodePage = 0;
+    saveStateSoon();
+    if (reportSeed()?.id === id && isImpactReport() === impact) { showEntryPointReport(); return; }
+    details.replaceChildren();
+    const pending = document.createElement("p"); pending.textContent = `Preparing ${impact ? "impact" : "entry-point"} report from the saved analysis…`; details.appendChild(pending);
+    vscode.postMessage({ type: impact ? "impactReport" : "entryPointReport", nodeId: id, graphKey });
+  }
+
+  function showPendingDependencyPath() {
+    details.replaceChildren();
+    const heading = document.createElement("h2"); heading.textContent = scopeIsImpact() ? "Impact path" : "Dependency path";
+    const pending = document.createElement("p"); pending.textContent = "Reconstructing one shortest route from the saved analysis…";
+    details.append(heading, pending);
+  }
+
+  function requestDependencyPath(targetId, showDetails = true) {
+    if (!reportScope?.nodeIds.has(targetId)) return;
+    // A monotonically increasing request ID prevents a delayed response from
+    // resurrecting a route after Clear, Return, or another target selection.
+    pathRequestId++;
+    dependencyPath = undefined;
+    reportScope.pathTargetId = targetId;
+    if (showDetails) { detailSelection = { kind: "dependencyPath", id: targetId }; showPendingDependencyPath(); }
+    render();
+    vscode.postMessage({ type: scopeIsImpact() ? "impactDependencyPath" : "entryPointDependencyPath", graphKey, seedId: reportScope.seedId,
+      nodeId: targetId, requestId: pathRequestId });
+  }
+
+  function clearDependencyPath() {
+    if (!reportScope) return;
+    pathRequestId++;
+    dependencyPath = undefined;
+    reportScope.pathTargetId = undefined;
+    if (detailSelection?.kind === "dependencyPath") {
+      // The route panel has no independent selection to restore. Reopen the
+      // target's ordinary details without altering the saved scope layout.
+      showNode(graph.nodes.find(node => node.id === detailSelection.id));
+    }
+    render();
+  }
+
+  function fitDependencyPath() {
+    if (!dependencyPath) return;
+    const nodeIds = new Set(dependencyPath.nodes.map(node => node.id));
+    const data = currentGraph();
+    const nodes = data.nodes.filter(node => nodeIds.has(node.id));
+    if (!nodes.length) return;
+    const edges = data.edges.filter(edge => dependencyPath.edges.some(item => item.id === edge.id));
+    const rect = svg.getBoundingClientRect();
+    transform = geometry.fit(geometry.bounds({ nodes, edges }, positions, sizes), rect.width, rect.height);
+    viewportCustomized = false;
+    updateTransform();
+  }
+
+  function showDependencyPath() {
+    const route = dependencyPath;
+    if (!route || !reportScope || (route.entryPointId || route.selectedFileId) !== reportScope.seedId) return;
+    detailSelection = { kind: "dependencyPath", id: route.targetId };
+    details.replaceChildren();
+    const text = (tag, value) => { const item = document.createElement(tag); item.textContent = value; details.appendChild(item); return item; };
+    text("h2", scopeIsImpact() ? "Impact path" : "Dependency path");
+    text("p", `${route.hops} analyzed link${route.hops === 1 ? "" : "s"} from ${route.nodes[0]?.relativePath || route.nodes[0]?.label} to ${route.nodes.at(-1)?.relativePath || route.nodes.at(-1)?.label}.`);
+    text("p", route.interpretation);
+    text("button", `Fit ${pathLabel()}`).addEventListener("click", fitDependencyPath);
+    text("button", `Clear ${pathLabel()}`).addEventListener("click", clearDependencyPath);
+    // Each hop keeps the original relationship kind and details. The final
+    // unresolved name can be inspected but never treated as a navigable file.
+    route.nodes.forEach((node, index) => {
+      const title = text("h3", `${index}. ${node.relativePath || node.label}`);
+      title.title = node.path;
+      if (index) {
+        const edge = route.edges[index - 1];
+        text("p", `Via ${edge.kind}${edge.details ? ` — ${edge.details}` : ""}`);
+      }
+      if (node.unresolved) text("p", "Unresolved name; no file location established.");
+      else if (node.missing) text("p", "Missing file according to the saved analysis; not rechecked.");
+      text("button", "Inspect node").addEventListener("click", () => { selectedId = node.id; showNode(node); render(); });
+    });
+    saveStateSoon();
+  }
+
+  function showReportScope() {
+    if (!entryPointReport || !reportAvailable(reportSeed().id)) return;
+    const seedId = reportSeed().id, impact = isImpactReport();
+    if (reportScope?.seedId === seedId && scopeIsImpact() === impact) { fit(); return; }
+    pathRequestId++; dependencyPath = undefined;
+    const previousView = reportScope?.previousView || JSON.parse(JSON.stringify(captureViewState()));
+    reportScope = { seedId, previousView, ...(impact ? { mode: "impact" } : {}),
+      nodeIds: trace(seedId, impact ? "impact" : "dependencies", Infinity) };
+    // Use fresh coordinates and original members, not a repository-sized or
+    // cycle-isolated arrangement. The backup retains every previous mode bank.
+    grouping.value = "none"; expandedGroups = new Set(); rebuildGroups();
+    positionSets = new Map(); cyclePositionSets = new Map(); positions = new Map(); positionSets.set("none", positions);
+    cycleMode.value = "off"; cycleComponent.value = "all"; refreshCycleMarks();
+    search.value = ""; selectedId = seedId; direction.value = "report";
+    dragging = panning = pointerNodeId = undefined;
+    detailSelection = reportSelection(seedId, impact);
+    updateDepthControl(); render(true); fit(); showEntryPointReport();
+  }
+
+  function returnFromReportScope() {
+    if (!reportScope) return;
+    const previous = reportScope.previousView, latestStatus = analysisStatus;
+    pathRequestId++; dependencyPath = undefined;
+    reportScope = undefined;
+    positionSets = new Map(); cyclePositionSets = new Map(); positions = new Map();
+    dragging = panning = pointerNodeId = undefined;
+    resetDetails(); restoreState(previous); updateDepthControl(); render(); restoreDetails(); updateTransform();
+    // Latest-attempt status is independent of layout: returning must not erase
+    // a failure/cancellation that happened while the report view was open.
+    showAnalysisStatus(latestStatus);
+  }
+
+  function showEntryPointReport() {
+    const report = entryPointReport;
+    if (!report) return;
+    const impact = isImpactReport(report), seed = reportSeed(report);
+    details.replaceChildren();
+    const text = (tag, value, parent = details) => { const item = document.createElement(tag); item.textContent = value; parent.appendChild(item); return item; };
+    text("h2", impact ? "File impact report" : "Entry-point dependency report");
+    text("p", seed.relativePath || seed.path);
+    text("p", `Saved analysis: ${report.analysis.generatedAt || "time not recorded"} · ${report.analysis.mode} · externals ${report.analysis.analysisIncludeExternal === true ? "enabled" : report.analysis.analysisIncludeExternal === false ? "disabled" : "not recorded"}`);
+    const c = report.counts;
+    text("p", `${c.nodes}/${c.repositoryNodes} original nodes (including ${impact ? "selected file" : "entry"}) · ${c.edges}/${c.repositoryEdges} links · ${c.unresolvedNames} unresolved names · ${c.missingFiles} missing files`);
+    if (impact) text("p", `${c.directDependents} direct dependents · ${c.totalDependents} total dependents (excluding selected file). Minimum hops lead from each dependent toward the selected file. This is potential change exposure, not predicted breakage.`);
+    text("p", `${c.reachableNotices} reachable notices · ${c.outsideNotices} outside · ${c.unattributedNotices} unattributed (${c.repositoryNotices} total)`);
+    text("p", `${report.products.filter(item => item.disposition === "reachable").length} product records linked to this scope; all product evidence is included in exports, not license validation.`);
+    text("p", `${impact ? "All direct/transitive analyzed dependents; original arrows are preserved" : "All analyzed outgoing dependencies"}; independent of display depth, grouping, search and visibility. Generating/exporting this report does not change the graph or run MATLAB. Showing its scope changes only the view.`);
+    const show = text("button", reportScope?.seedId === seed.id && scopeIsImpact() === impact ? "Fit report scope" : "Show report scope in graph");
+    show.addEventListener("click", showReportScope);
+    if (reportScope) text("button", "Return to previous view").addEventListener("click", returnFromReportScope);
+    for (const format of ["md", "json"]) {
+      const button = text("button", `Export report (${format === "md" ? "Markdown" : "JSON"})`);
+      button.addEventListener("click", () => vscode.postMessage({ type: impact ? "exportImpactReport" : "exportEntryPointReport", nodeId: seed.id, graphKey, format }));
+    }
+    const limits = text("details", ""); text("summary", "Coverage limits — review before interpreting zero notices", limits);
+    for (const value of report.limitations) text("p", value, limits);
+    for (const [scope, label] of [["reachable", "Reachable notices"], ["outside", "Outside-trace notices (not declared irrelevant)"], ["unattributed", "Unattributed notices (review for coverage limits)"]]) {
+      const notices = report.notices.filter(item => item.disposition === scope);
+      const section = text("details", ""); section.open = scope !== "outside";
+      text("summary", `${label} (${notices.length})`, section);
+      if (!notices.length) text("p", "None associated by exact graph evidence; this is not runtime validation.", section);
+      for (const { item } of notices.slice(0, 100)) text("p", `${item.severity}: ${item.file || "General analysis notice"} — ${item.message}`, section);
+      if (notices.length > 100) text("p", "First 100 shown. Both report exports retain every notice.", section);
+    }
+    text("h3", `${impact ? "Selected file and dependent nodes" : "Reachable original nodes"} (${report.nodes.length})`);
+    const start = reportNodePage * 50;
+    for (const { node, depth: hops } of report.nodes.slice(start, start + 50)) {
+      const row = text("button", `${node.relativePath || node.label} · ${hops} hops${node.unresolved ? " · unresolved name" : node.missing ? " · missing file" : ""}`);
+      row.disabled = Boolean(node.unresolved); row.addEventListener("click", () => openNode(node));
+    }
+    if (report.nodes.length > 50) {
+      text("p", `Nodes ${start + 1}–${Math.min(start + 50, report.nodes.length)} of ${report.nodes.length}; exports include all nodes and original links.`);
+      for (const [label, delta] of [["Previous nodes", -1], ["Next nodes", 1]]) {
+        const button = text("button", label); button.disabled = reportNodePage + delta < 0 || (reportNodePage + delta) * 50 >= report.nodes.length;
+        button.addEventListener("click", () => { reportNodePage += delta; showEntryPointReport(); });
+      }
+    }
+    saveStateSoon();
+  }
+
   function calculateLayout(kind) {
     const data = currentGraph();
     if (!data.nodes.length) return;
     data.nodes.forEach(nodeSize);
-    if (kind === "circle") geometry.circle(data.nodes, positions, sizes);
-    else if (kind === "grid") geometry.grid(data.nodes, positions, sizes);
-    else if (kind === "hierarchical") geometry.hierarchical(data, positions, sizes);
-    else { forceLayout(data); geometry.separate(data.nodes, positions, sizes); }
+    const arrange = (part) => {
+      if (kind === "circle") geometry.circle(part.nodes, positions, sizes);
+      else if (kind === "grid") geometry.grid(part.nodes, positions, sizes);
+      else if (kind === "hierarchical") geometry.hierarchical(part, positions, sizes);
+      else { forceLayout(part); geometry.separate(part.nodes, positions, sizes); }
+    };
+    if (cycleMode.value === "isolate" || reportScope) {
+      const rect = svg.getBoundingClientRect();
+      geometry.compactComponents(data, positions, sizes, arrange, rect.width / Math.max(1, rect.height));
+    } else arrange(data);
   }
 
   function forceLayout(data) {
@@ -720,6 +1094,10 @@
 
   function render(reposition = false) {
     if (!graph) return;
+    updateDepthControl();
+    entryPointReportButton.disabled = !reportAvailable(selectedId);
+    impactReportButton.disabled = !reportAvailable(selectedId);
+    comparisonButton.disabled = Boolean(graph.metadata.graphType && graph.metadata.graphType !== "files");
     while (svg.firstChild) svg.removeChild(svg.firstChild);
     nodeElements.clear(); edgeElements.clear();
     const data = currentGraph();
@@ -742,11 +1120,14 @@
     for (const edge of data.edges) drawEdge(edge);
     for (const node of data.nodes) drawNode(node, query);
     saveStateSoon();
-    const itemLabel = graphTerms().items, edgeLabel = graphTerms().edges;
     const original = data.original || data;
+    const unresolvedCount = graph.nodes.filter((node) => node.unresolved).length;
+    const itemLabel = unresolvedCount && graphTerms().items === "files" ? "files/names" : graphTerms().items, edgeLabel = graphTerms().edges;
+    const unresolvedSummary = unresolvedCount ? ` · ${original.nodes.filter((node) => node.unresolved).length}/${unresolvedCount} unresolved names` : "";
     const groupSummary = groupIndex.groups.size ? ` · ${data.nodes.filter((node) => node.group).length} collapsed groups · ${data.edges.length} displayed links · ${data.internalEdges} internal ${edgeLabel}` : "";
-    summary.textContent = `${original.nodes.length}/${graph.nodes.length} ${itemLabel} · ${original.edges.length}/${graph.edges.length} ${edgeLabel}${groupSummary} · ${cycleIndex.components.length} cyclic components${cycleMode.value !== "off" ? ` (${cycleMode.value})` : ""} · ${graph.products.length} product references · ${problemSummary()} · ${graph.metadata.mode} · ${graph.metadata.durationSeconds.toFixed(1)} s`;
+    summary.textContent = `${original.nodes.length}/${graph.nodes.length} ${itemLabel} · ${original.edges.length}/${graph.edges.length} ${edgeLabel}${groupSummary}${unresolvedSummary} · ${cycleIndex.components.length} cyclic components${cycleMode.value !== "off" ? ` (${cycleMode.value})` : ""} · ${graph.products.length} product references · ${problemSummary()} · ${graph.metadata.mode} · ${graph.metadata.durationSeconds.toFixed(1)} s`;
     summary.title = summary.textContent;
+    if (reportScope) { summary.textContent += ` · ${scopeIsImpact() ? "impact report scope (all analyzed dependent hops)" : "report scope (all analyzed dependency hops)"}`; summary.title = summary.textContent; }
     if (detailSelection?.kind === "group") showGroup(groupIndex.groups.get(detailSelection.id));
     else if (detailSelection?.kind === "cycles") showCycles();
   }
@@ -755,7 +1136,8 @@
     const value = geometry.edgeGeometry(edge, positions, sizes);
     if (!value) return;
     const cyclic = cyclicEdgeCount(edge);
-    const line = element(value.d ? "path" : "line", { class: `edge${cyclic ? " cyclic" : ""}${isSelected(edge.source) || isSelected(edge.target) ? " highlight" : ""}`, "data-edge-id": edge.id,
+    const pathEdge = dependencyPath?.edges.some(item => item.id === edge.id);
+    const line = element(value.d ? "path" : "line", { class: `edge${cyclic ? " cyclic" : ""}${dependencyPath ? pathEdge ? " dependency-path" : " path-dim" : isSelected(edge.source) || isSelected(edge.target) ? " highlight" : ""}`, "data-edge-id": edge.id,
       ...(edge.count ? { "data-link-count": edge.count } : {}), ...(cyclic ? { "data-cyclic-links": cyclic } : {}) });
     for (const [name, item] of Object.entries(value)) if (name !== "bounds") line.setAttribute(name, item);
     edgeElements.set(edge.id, line);
@@ -772,7 +1154,8 @@
   function drawNode(node, query) {
     const point = positions.get(node.id), size = nodeSize(node);
     const matches = !query || `${node.label} ${node.relativePath} ${node.path} ${node.searchText || ""}`.toLowerCase().includes(query);
-    const group = element("g", { transform: `translate(${point.x},${point.y})`, "data-node-id": node.id, ...(node.group ? { "data-group-id": node.id, tabindex: 0, role: "button", "aria-label": `${node.relativePath}; Enter to expand` } : {}), class: `node${node.group ? " cluster" : ""}${node.external ? " external" : ""}${cyclicNode(node) ? " cyclic" : ""}${node.missing ? " missing" : ""}${isSelected(node.id) ? " selected" : ""}${matches ? "" : " dim"}` });
+    const pathNode = dependencyPath?.nodes.some(item => item.id === node.id);
+    const group = element("g", { transform: `translate(${point.x},${point.y})`, "data-node-id": node.id, ...(node.group ? { "data-group-id": node.id, tabindex: 0, role: "button", "aria-label": `${node.relativePath}; Enter to expand` } : {}), class: `node${node.group ? " cluster" : ""}${node.external ? " external" : ""}${cyclicNode(node) ? " cyclic" : ""}${node.missing ? " missing" : ""}${isSelected(node.id) ? " selected" : ""}${pathNode ? " dependency-path" : dependencyPath ? " path-dim" : matches ? "" : " dim"}` });
     nodeElements.set(node.id, group);
     group.appendChild(element("rect", { x: -size.width / 2, y: -size.height / 2, width: size.width, height: size.height }));
     const text = element("text", { "text-anchor": "middle", "xml:space": "preserve" });
@@ -781,7 +1164,7 @@
       span.textContent = line; text.appendChild(span);
     });
     group.appendChild(text);
-    group.addEventListener("click", (event) => { event.stopPropagation(); if (suppressClick) { suppressClick = false; return; } selectedId = node.id; showNode(node); render(direction.value !== "all"); });
+    group.addEventListener("click", (event) => { event.stopPropagation(); if (suppressClick) { suppressClick = false; return; } selectedId = node.id; showNode(node); render(!reportScope && direction.value !== "all"); });
     group.addEventListener("dblclick", (event) => { event.stopPropagation(); openNode(node); });
     if (node.group) group.addEventListener("keydown", (event) => {
       if (event.key === "Enter" || event.key === " ") { event.preventDefault(); event.stopPropagation(); toggleGroup(node.id); }
@@ -806,16 +1189,22 @@
     details.replaceChildren();
     const heading = document.createElement("h2"); heading.textContent = node.label; details.appendChild(heading);
     const list = document.createElement("dl");
-    const fields = [["Path", node.path], ["Type", node.kind]];
+    const fields = [[node.unresolved ? "Unresolved name" : "Path", node.path], ["Type", node.kind]];
     if (node.line !== undefined) fields.push(["Line", String(node.line + 1)]);
     if (node.containerName) fields.push(["Container", node.containerName]);
-    fields.push(["External", node.external ? "Yes" : "No"], ["Missing", node.missing ? "Yes" : "No"]);
+    fields.push(["External", node.unresolved ? "Unknown" : node.external ? "Yes" : "No"],
+      ["Missing", node.unresolved ? "Not established" : node.missing ? "Yes" : "No"]);
     for (const [name, value] of fields) {
       const term = document.createElement("dt"); term.textContent = name;
       const description = document.createElement("dd"); description.textContent = value;
       list.append(term, description);
     }
     details.appendChild(list);
+    if (node.unresolved) {
+      const explanation = document.createElement("p");
+      explanation.textContent = "MATLAB reported this dependency name without establishing a file path. It may be a variable, unavailable class/function, or missing asset. No file location is guessed; file navigation is unavailable.";
+      details.appendChild(explanation);
+    }
     const counts = document.createElement("p");
     // Count connected symbols/containers, not source occurrences: one reference
     // edge may group many lines, and duplicate edges must not inflate neighbors.
@@ -824,7 +1213,17 @@
     const terms = graphTerms();
     counts.textContent = `${outgoing} ${terms.outgoing[outgoing === 1 ? 0 : 1]} · ${incoming} ${terms.incoming[incoming === 1 ? 0 : 1]}`;
     details.appendChild(counts);
-    const button = document.createElement("button"); button.textContent = node.line === undefined ? "Open file" : "Open symbol"; button.addEventListener("click", () => vscode.postMessage({ type: "openFile", path: node.path, line: node.line, character: node.character })); details.appendChild(button);
+    const button = document.createElement("button"); button.textContent = node.unresolved ? "No resolved file" : node.line === undefined ? "Open file" : "Open symbol"; button.disabled = Boolean(node.unresolved); button.addEventListener("click", () => openNode(node)); details.appendChild(button);
+    if (reportAvailable(node.id)) {
+      const report = document.createElement("button"); report.textContent = "Entry-point dependency report";
+      report.addEventListener("click", () => requestEntryPointReport(node.id)); details.appendChild(report);
+      const impact = document.createElement("button"); impact.textContent = "Impact report";
+      impact.addEventListener("click", () => requestEntryPointReport(node.id, "impact")); details.appendChild(impact);
+    }
+    if (reportScope?.nodeIds.has(node.id)) {
+      const path = document.createElement("button"); path.textContent = `Show ${pathLabel()}`;
+      path.addEventListener("click", () => requestDependencyPath(node.id)); details.appendChild(path);
+    }
     const component = cycleIndex.nodeToComponent.get(node.id);
     if (component) {
       const inspect = document.createElement("button"); inspect.textContent = "Inspect cyclic component";
@@ -886,10 +1285,14 @@
         selectedIds: new Set(data.nodes.filter((node) => isSelected(node.id)).map((node) => node.id)), search: search.value, fontFamily,
         cyclicNodeIds: new Set(data.nodes.filter(cyclicNode).map((node) => node.id)),
         cyclicEdgeCounts: new Map(data.edges.map((edge) => [edge.id, cyclicEdgeCount(edge)])),
-        cycleDescription: cycleMode.value === "off" ? "" : `Cycle view: ${cycleMode.value}; ${cycleMarks.components.length} original cyclic components selected. Filters may hide members; projected grouped arrows are not themselves proof of a cycle.`,
+        cycleDescription: reportScope ? `${scopeIsImpact() ? "Impact" : "Entry-point"} report scope: ${graph.nodes.find(node => node.id === reportScope.seedId)?.relativePath || reportScope.seedId}. All analyzed ${scopeIsImpact() ? "incoming dependents; original arrow directions preserved; potential change exposure only" : "outgoing dependencies"}; no runtime-completeness claim. JSON/DOT/CSV graph exports retain the complete original analysis.`
+          : cycleMode.value === "off" ? "" : `Cycle view: ${cycleMode.value}; ${cycleMarks.components.length} original cyclic components selected. Filters may hide members; projected grouped arrows are not themselves proof of a cycle.`,
+        dependencyPathNodeIds: dependencyPath ? new Set(dependencyPath.nodes.map(node => node.id)) : undefined,
+        dependencyPathEdgeIds: dependencyPath ? new Set(dependencyPath.edges.map(edge => edge.id)) : undefined,
+        pathDescription: dependencyPath?.interpretation,
         colors: { background: css("--vscode-editor-background", "#fff"), text: css("--vscode-editor-foreground", "#222"),
           node: css("--vscode-charts-blue", "#1976d2"), edge: css("--vscode-descriptionForeground", "#888"),
-          selected: css("--vscode-focusBorder", "#c05a00"), cyclic: css("--vscode-charts-purple", "#b86dda"), external: css("--vscode-charts-yellow", "#a17700"), missing: css("--vscode-errorForeground", "#d32f2f") }
+          selected: css("--vscode-focusBorder", "#c05a00"), cyclic: css("--vscode-charts-purple", "#b86dda"), external: css("--vscode-charts-yellow", "#a17700"), missing: css("--vscode-errorForeground", "#d32f2f"), path: css("--vscode-charts-green", "#4fbf75") }
       });
       const metadata = { scope, nodes: data.nodes.length, edges: data.edges.length };
       if (format === "svg") {
@@ -969,8 +1372,8 @@
   });
   svg.addEventListener("click", (event) => {
     if (suppressClick) { suppressClick = false; return; }
-    if (pointerNodeId) { const node = findNode(pointerNodeId); selectedId = pointerNodeId; showNode(node); render(direction.value !== "all"); return; }
-    if (event.target === svg || event.target === world) { const traced = direction.value !== "all"; selectedId = undefined; direction.value = "all"; resetDetails(); updateDepthControl(); render(traced); }
+    if (pointerNodeId) { const node = findNode(pointerNodeId); selectedId = pointerNodeId; showNode(node); render(!reportScope && direction.value !== "all"); return; }
+    if (event.target === svg || event.target === world) { const traced = !reportScope && direction.value !== "all"; selectedId = undefined; direction.value = "all"; resetDetails(); updateDepthControl(); render(traced); }
   });
   svg.addEventListener("dblclick", (event) => {
     const node = graph && findNode(pointerNodeId);
@@ -980,13 +1383,14 @@
   search.addEventListener("input", () => render());
   layout.addEventListener("change", () => { calculateLayout(layout.value); render(); fit(); });
   grouping.addEventListener("change", () => {
+    if (reportScope) { grouping.value = "none"; return; }
     // The old map is already retained in positionSets. Mode changes start
     // collapsed; repeated modes reuse positions without touching source data.
-    positions = positionSets.get(grouping.value) || new Map(); positionSets.set(grouping.value, positions);
+    selectPositionMap();
     expandedGroups = new Set(); rebuildGroups();
     if (cycleMode.value === "isolate") for (const id of cycleMarks.nodes) { const owner = groupIndex.membership.get(id); if (owner) expandedGroups.add(owner); }
     if (selectedId && !graph.nodes.some((node) => node.id === selectedId)) { selectedId = undefined; direction.value = "all"; }
-    resetDetails(); pointerNodeId = undefined; updateDepthControl(); render(); fit();
+    resetDetails(); pointerNodeId = undefined; updateDepthControl(); render(cycleMode.value === "isolate"); fit();
   });
   document.getElementById("groups").addEventListener("click", showGroups);
   cyclesButton.addEventListener("click", showCycles);
@@ -1006,6 +1410,14 @@
     vscode.postMessage(message);
   });
   problemsButton.addEventListener("click", showProblems);
+  entryPointReportButton.addEventListener("click", () => requestEntryPointReport(selectedId));
+  impactReportButton.addEventListener("click", () => requestEntryPointReport(selectedId, "impact"));
+  comparisonButton.addEventListener("click", () => {
+    detailSelection = { kind: "comparison", ...(reportAvailable(selectedId) ? { id: selectedId } : {}) };
+    comparisonData = undefined; requestComparison("info");
+  });
+  clearDependencyPathButton.addEventListener("click", clearDependencyPath);
+  document.getElementById("return-report-view").addEventListener("click", returnFromReportScope);
   document.getElementById("export").addEventListener("click", () => vscode.postMessage({ type: "export" }));
   document.getElementById("external-settings").addEventListener("click", () => vscode.postMessage({ type: "externalSettings" }));
   document.getElementById("status-logs").addEventListener("click", () => vscode.postMessage({ type: "openLogs" }));
@@ -1028,10 +1440,15 @@
       graph = event.data.graph;
       graphKey = incomingKey;
       if (sameGraph) { if (event.data.analysisStatus !== undefined) showAnalysisStatus(event.data.analysisStatus); render(); return; }
+      entryPointReport = undefined;
+      comparisonRequestId++; comparisonPending = false; comparisonData = undefined;
+      reportScope = undefined;
+      pathRequestId++; dependencyPath = undefined;
       // New analysis may merge/split components or change coverage. Recompute
       // from original data and reset the cycle view; same-result serializer
       // restoration below is the only path that reuses a saved cycle selection.
       rebuildCycles();
+      cyclePositionSets = new Map();
       if (!keepGrouping) { grouping.value = "none"; expandedGroups = new Set(); positionSets = new Map(); }
       rebuildGroups(); expandedGroups = new Set([...expandedGroups].filter((id) => groupIndex.groups.has(id)));
       // A Refresh may remove many nodes. Prune all mode maps before saving state.
@@ -1059,7 +1476,35 @@
       showAnalysisStatus(event.data.analysisStatus !== undefined ? event.data.analysisStatus : analysisStatus);
       updateDepthControl();
       render(!restored && !keepGrouping); restoreDetails();
+      if (reportScope?.pathTargetId) requestDependencyPath(reportScope.pathTargetId, detailSelection?.kind === "dependencyPath");
       if (!restored || !viewportCustomized) requestAnimationFrame(() => { if (!viewportCustomized) fit(); });
+    } else if (event.data.type === "comparisonState" && event.data.graphKey === graphKey
+      && detailSelection?.kind === "comparison" && event.data.requestId === comparisonRequestId) {
+      comparisonPending = false;
+      comparisonData = { ...event.data, ...(comparisonAction === "info" ? { result: undefined } : {}) };
+      if (comparisonData.result) detailSelection.scope = comparisonData.result.report.scope?.mode || "all";
+      else detailSelection.scope = undefined;
+      showComparison(); saveStateSoon();
+    } else if (["entryPointReport", "impactReport"].includes(event.data.type) && event.data.graphKey === graphKey) {
+      if (detailSelection?.kind === "entryPointReport" && detailSelection.id === reportSeed(event.data.report)?.id
+        && (detailSelection.mode === "impact") === isImpactReport(event.data.report)) {
+        entryPointReport = event.data.report; showEntryPointReport();
+      }
+    } else if (["entryPointReportError", "impactReportError"].includes(event.data.type) && event.data.graphKey === graphKey
+      && detailSelection?.kind === "entryPointReport" && detailSelection.id === event.data.nodeId
+      && (detailSelection.mode === "impact") === (event.data.type === "impactReportError")) {
+      details.replaceChildren(); const error = document.createElement("p"); error.textContent = event.data.message; details.appendChild(error);
+    } else if (event.data.type === (scopeIsImpact() ? "impactDependencyPath" : "entryPointDependencyPath") && event.data.graphKey === graphKey
+      && reportScope?.seedId === event.data.seedId && reportScope.pathTargetId === event.data.nodeId
+      && pathRequestId === event.data.requestId) {
+      dependencyPath = event.data.route;
+      render();
+      if (detailSelection?.kind === "dependencyPath" && detailSelection.id === dependencyPath.targetId) showDependencyPath();
+    } else if (event.data.type === (scopeIsImpact() ? "impactDependencyPathError" : "entryPointDependencyPathError") && event.data.graphKey === graphKey
+      && reportScope?.seedId === event.data.seedId && reportScope.pathTargetId === event.data.nodeId
+      && pathRequestId === event.data.requestId) {
+      clearDependencyPath();
+      details.replaceChildren(); const error = document.createElement("p"); error.textContent = event.data.message; details.appendChild(error);
     } else if (event.data.type === "analysisStatus" && graph) showAnalysisStatus(event.data.status);
     else if (event.data.type === "requestExport") void exportVisual(event.data.format, event.data.scope, event.data.scale);
     else if (event.data.type === "showProblems") showProblems();

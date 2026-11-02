@@ -53,10 +53,20 @@ see the [model-analysis guide](SIMULINK_VALIDATION.md).
 The JSON document contains:
 
 - `metadata`: schema version, root, graph type, analysis mode, MATLAB version, timestamp, duration, and counts.
-- `nodes`: stable path-based IDs and display metadata, with optional source positions for symbol nodes.
+- `nodes`: stable native IDs and display metadata, with optional source positions for symbol nodes. Project results can also contain `unresolved: true` names: their `path` is native evidence text, not a filesystem location. Their compatibility booleans `external`/`missing` are false because neither location nor absence is established; consumers must inspect `unresolved` first.
 - `edges`: directed source-to-required-file relationships.
 - `products`: MathWorks product references and their introducing files.
-- `problems`: missing files and nonfatal per-file analysis failures.
+- `problems`: missing files, unresolved native names, and nonfatal per-file analysis failures.
+
+Unresolved Project names and their edges are retained even when resolved external
+files are excluded; unknown location is not proof of external scope. They remain
+ungrouped because no physical folder/package owner is established. Source
+navigation requires an absolute path and rejects nodes marked unresolved,
+including a defensive host-side check independent of the webview's disabled
+Open button. Mixed Project summaries say files/names and count unresolved names
+separately. Existing absolute missing paths retain `missing: true` and their
+original warning/navigation behavior. Refresh legacy Project caches to regenerate
+these distinctions; no path is inferred from the extension host working folder.
 
 The model is intentionally independent of SVG and VS Code. Future clients can consume the same JSON without starting the extension.
 
@@ -93,6 +103,71 @@ restoration retains the view; a new result recomputes/reset selection rather tha
 silently reusing a changed SCC. SVG/PNG receive projected cycle markings;
 portable host exporters still receive only the original graph. See
 [cycle semantics](CYCLES.md) for partial visibility and reference/recursion limits.
+
+Isolation uses a separate per-grouping coordinate bank (`cyclePositions`, with
+`cyclePositionVersion: 1`) from overview `groupPositions`. Geometry finds the
+visible projection's undirected islands only for placement, runs the selected
+layout with fresh local seeds, and shelf-packs each full bounds rectangle,
+including self-loop curves. It does not change the original SCC classification.
+This avoids repository-scale inherited gaps and disconnected Force drift. Old
+isolated saved views migrate once; current views retain dragged positions/custom
+zoom across reload. Leaving isolation keeps known overview coordinates and
+places any newly expanded members locally instead of globally re-laying out.
+
+## Entry-point reports
+
+Entry-point reports are built by `src/core/entryPointReport.ts` in the host from
+the original file graph. Iterative BFS records minimum hops and original edges;
+exact path/name indexes classify every notice/product without runtime claims.
+The webview sends only the original seed ID and analysis identity. Host-derived
+data is displayed using textContent and exported as Markdown/JSON; no
+webview-supplied subgraph is trusted. Stale requests/responses are rejected.
+Saved state retains only report selection; a new analysis clears it. See
+[entry-point reports](ENTRY_POINT_REPORTS.md) for scope/coverage semantics.
+
+Report-scope projection is a separate reversible renderer transaction. A scope
+holds an original seed and an allowed-ID set derived through unbounded outgoing
+traversal, plus one detached ordinary-view snapshot. It uses fresh coordinate
+banks and original members; conflicting filters are paused rather than combined.
+Saved state stores only the seed and ordinary-view backup, never authoritative
+membership IDs or nested history. Restoration validates the seed and analysis
+identity before recomputing membership; Return validates/restores the ordinary
+snapshot while keeping the latest analysis-attempt status. New analysis clears
+the transaction. Only visual exporters see the projected scope.
+
+A dependency path is a secondary highlight inside that scope, not another
+projection. The webview sends the seed/target IDs and a request ID; the host
+rebuilds the report and walks its BFS predecessor chain, returning only original
+node/link records. The renderer highlights those exact IDs while retaining all
+scoped members and coordinates. Saved state stores only the target ID, and a
+restored panel asks the host to rebuild its route. Clearing, changing scope or
+loading a new analysis invalidates pending responses. SVG/PNG include the
+highlight; graph-data and report exports remain unchanged.
+
+Impact reports share the evidence classifier, Markdown serializer and iterative
+traversal engine with entry-point reports, but index adjacency by original edge
+target instead of source. The public impact document has its own `file-impact`
+kind and `selectedFile`, not a mislabeled execution entry point. Counts exclude
+the selected file from direct/total dependents, including in cycles. Incoming
+predecessor links lead from each dependent toward the selected file; impact path
+reconstruction therefore keeps that chain order while preserving original arrows.
+Scope direction is explicit in saved state and reply dispatch, so same-seed
+opposite-direction reports cannot collide. See [impact reports](IMPACT_REPORTS.md).
+
+Analysis comparison lives in `src/core/analysisComparison.ts`. It validates and
+detaches complete file graphs, indexes established paths/native names rather than
+volatile analyzer IDs, groups relationships by original endpoints/kind, and uses
+multisets for notice/product evidence. Recorded coverage differences are separate
+from graph deltas; source contents and runtime behavior are never inferred.
+Dependency/impact scopes are computed independently on each original graph, and
+an absent baseline seed is explicitly unavailable rather than an empty scope.
+
+The panel owns baseline URI preferences and displayed comparison snapshots.
+Baseline files are versioned, local and size-limited; they never replace the active
+graph. Exports reference a host-held snapshot ID, not renderer-supplied records.
+Async dialog/read identity guards prevent adoption or replies after a newer graph
+arrives. Saved view state carries only selection/scope instructions; restart reads
+the chosen file and rebuilds the report. See [analysis comparison](ANALYSIS_COMPARISON.md).
 
 ## Webview security
 

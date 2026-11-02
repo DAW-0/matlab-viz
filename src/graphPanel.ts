@@ -3,7 +3,11 @@ import * as path from "node:path";
 import * as vscode from "vscode";
 import { defaultLayout } from "./configuration";
 import { graphToCsv, graphToDot } from "./core/exporters";
+import { buildEntryPointDependencyPath, buildEntryPointReport, entryPointReportToMarkdown,
+  buildImpactDependencyPath, buildImpactReport, impactReportToMarkdown } from "./core/entryPointReport";
 import type { DependencyGraph, GraphAnalysisStatus } from "./model";
+import { compareAnalyses, comparisonToMarkdown, createAnalysisBaseline, readAnalysisBaseline,
+  type AnalysisBaseline, type AnalysisComparison } from "./core/analysisComparison";
 
 interface WebviewMessage {
   type: string;
@@ -20,6 +24,12 @@ interface WebviewMessage {
   width?: number;
   height?: number;
   message?: string;
+  nodeId?: string;
+  seedId?: string;
+  requestId?: number;
+  action?: string;
+  comparisonId?: string;
+  graphKey?: string;
 }
 
 function nonce(): string {
@@ -38,6 +48,9 @@ export class GraphPanel implements vscode.Disposable {
   private unavailableMessage: string | undefined;
   private pendingExport: { type: "requestExport"; format: string; scope: string; scale: number } | undefined;
   private lastExportDirectory: vscode.Uri | undefined;
+  private comparisonUri: vscode.Uri | undefined;
+  private comparisonResult: { id: string; report: AnalysisComparison } | undefined;
+  private comparisonBusy = false;
   // Undefined lets a serializer restore its saved notice; null explicitly
   // clears it after success. This state is deliberately absent from exports.
   private analysisStatus: GraphAnalysisStatus | null | undefined;
@@ -49,6 +62,8 @@ export class GraphPanel implements vscode.Disposable {
   ) {
     const saved = services.state?.get<string>("exportDirectory");
     if (saved) { try { this.lastExportDirectory = vscode.Uri.parse(saved); } catch { /* An optional export preference must not prevent activation. */ } }
+    const baseline = services.state?.get<string>("comparisonBaselineUri");
+    if (baseline) { try { const uri = vscode.Uri.parse(baseline); if (uri.scheme === "file") this.comparisonUri = uri; } catch { /* Explicit Load remains available if an optional preference is malformed. */ } }
   }
 
   public dispose(): void {
@@ -129,7 +144,7 @@ export class GraphPanel implements vscode.Disposable {
 
   /** Populate the cache without opening a new panel during activation. */
   public setGraph(graph: DependencyGraph): void {
-    if (this.graph !== graph) this.needsGraph = true;
+    if (this.graph !== graph) { this.needsGraph = true; this.comparisonResult = undefined; }
     this.graph = graph;
     this.unavailableMessage = undefined;
     this.postGraph();
@@ -263,7 +278,12 @@ export class GraphPanel implements vscode.Disposable {
         this.postGraph();
         break;
       case "openFile":
-        if (message.path && fs.existsSync(message.path)) {
+        // Native Project results can contain bare unresolved names. Never
+        // resolve those against the extension host's incidental working folder,
+        // including messages from older cached webviews without the new flag.
+        if (message.path && path.isAbsolute(message.path)
+          && !this.graph?.nodes.some((node) => node.path === message.path && node.unresolved)
+          && fs.existsSync(message.path)) {
           const uri = vscode.Uri.file(message.path);
           if ([".slx", ".slxp", ".sldd"].includes(path.extname(message.path).toLowerCase())) {
             // These are binary/archive assets, not UTF-8 source documents.
@@ -295,6 +315,61 @@ export class GraphPanel implements vscode.Disposable {
       case "export":
         await this.exportGraph();
         break;
+      case "comparisonAction":
+        await this.handleComparison(message);
+        break;
+      case "entryPointReport":
+      case "exportEntryPointReport":
+      case "impactReport":
+      case "exportImpactReport": {
+        // Recompute from the host-owned graph. Never trust a webview-supplied
+        // subgraph/report, and reject messages from a superseded analysis.
+        if (!this.graph || message.graphKey !== JSON.stringify(this.graph.metadata) || !message.nodeId) break;
+        const impact = message.type === "impactReport" || message.type === "exportImpactReport";
+        const reportType = impact ? "impactReport" : "entryPointReport";
+        const label = impact ? "Impact" : "Entry-point";
+        try {
+          const report = impact ? buildImpactReport(this.graph, message.nodeId) : buildEntryPointReport(this.graph, message.nodeId);
+          const seed = report.kind === "file-impact" ? report.selectedFile : report.entryPoint;
+          if (message.type === reportType) {
+            this.services.output?.appendLine(`[MATLAB Viz] ${label} report: ${seed.path}; nodes=${report.counts.nodes}, links=${report.counts.edges}, reachable notices=${report.counts.reachableNotices}, outside=${report.counts.outsideNotices}, unattributed=${report.counts.unattributedNotices}.${report.kind === "file-impact" ? ` Direct dependents=${report.counts.directDependents}, total dependents=${report.counts.totalDependents}.` : ""} No MATLAB execution.`);
+            void this.panel?.webview.postMessage({ type: reportType, graphKey: message.graphKey, report });
+          } else if (message.format === "json" || message.format === "md") {
+            const content = message.format === "json" ? `${JSON.stringify(report, null, 2)}\n`
+              : report.kind === "file-impact" ? impactReportToMarkdown(report) : entryPointReportToMarkdown(report);
+            const stem = path.basename(seed.path).replace(/\.[^.]+$/, "").replace(/[^a-z0-9_-]/gi, "_");
+            await this.save(content, message.format, "utf8", `${stem}-${impact ? "impact" : "entry-point"}-report.${message.format}`);
+          }
+        } catch (error) {
+          const reason = error instanceof Error ? error.message : String(error);
+          this.services.output?.error(`${label} report failed: ${reason}`);
+          void this.panel?.webview.postMessage({ type: `${reportType}Error`, graphKey: message.graphKey, nodeId: message.nodeId, message: reason });
+        }
+        break;
+      }
+      case "entryPointDependencyPath":
+      case "impactDependencyPath": {
+        // The webview supplies identities only. Resolve every route link from
+        // the host-owned original graph, never from a filtered or grouped view.
+        if (!this.graph || message.graphKey !== JSON.stringify(this.graph.metadata)
+          || !message.seedId || !message.nodeId || !Number.isSafeInteger(message.requestId)
+          || (message.requestId ?? 0) < 1) break;
+        try {
+          const impact = message.type === "impactDependencyPath";
+          const route = impact ? buildImpactDependencyPath(buildImpactReport(this.graph, message.seedId), message.nodeId)
+            : buildEntryPointDependencyPath(buildEntryPointReport(this.graph, message.seedId), message.nodeId);
+          if (!route) throw new Error(`The target is outside this ${impact ? "impact" : "entry-point"} report scope.`);
+          this.services.output?.appendLine(`[MATLAB Viz] ${impact ? "Impact" : "Dependency"} path: selected=${message.seedId}, target=${message.nodeId}; ${route.hops} original analyzed links. No MATLAB execution.`);
+          void this.panel?.webview.postMessage({ type: message.type, graphKey: message.graphKey,
+            seedId: message.seedId, nodeId: message.nodeId, requestId: message.requestId, route });
+        } catch (error) {
+          const reason = error instanceof Error ? error.message : String(error);
+          this.services.output?.error(`Dependency path failed: ${reason}`);
+          void this.panel?.webview.postMessage({ type: `${message.type}Error`, graphKey: message.graphKey,
+            seedId: message.seedId, nodeId: message.nodeId, requestId: message.requestId, message: reason });
+        }
+        break;
+      }
       case "saveVisual":
         if (message.data && (message.format === "svg" || message.format === "png")) {
           const dimensions = message.width && message.height ? `, pixels=${message.width}x${message.height}` : "";
@@ -308,10 +383,89 @@ export class GraphPanel implements vscode.Disposable {
     }
   }
 
-  private async save(content: string, extension: string, encoding: "utf8" | "base64"): Promise<void> {
+  /** Only explicit file choices become baselines. Never copy a webview subgraph. */
+  private async readBaseline(uri: vscode.Uri): Promise<AnalysisBaseline> {
+    if (uri.scheme !== "file") throw new Error("Choose a local baseline file; remote locations are not loaded.");
+    const limit = 64 * 1024 * 1024;
+    if ((await vscode.workspace.fs.stat(uri)).size > limit) throw new Error("Baseline exceeds the 64 MiB safety limit.");
+    const bytes = await vscode.workspace.fs.readFile(uri);
+    if (bytes.byteLength > limit) throw new Error("Baseline exceeds the 64 MiB safety limit.");
+    return readAnalysisBaseline(JSON.parse(Buffer.from(bytes).toString("utf8")));
+  }
+
+  private async rememberBaseline(uri: vscode.Uri | undefined): Promise<void> {
+    this.comparisonUri = uri;
+    this.comparisonResult = undefined;
+    try { await this.services.state?.update("comparisonBaselineUri", uri?.toString()); }
+    catch (error) { this.services.output?.warn(`Baseline selected for this session, but preference was not stored: ${String(error)}`); }
+  }
+
+  private async handleComparison(message: WebviewMessage): Promise<void> {
+    if (!this.graph || message.graphKey !== JSON.stringify(this.graph.metadata)
+      || !Number.isSafeInteger(message.requestId) || (message.requestId ?? 0) < 1) return;
+    const graph = this.graph, graphKey = message.graphKey;
+    const reply = (value: object) => {
+      // A dialog/file read can outlive Refresh. It must not overwrite a newer
+      // analysis's panel, and a stale export must not use that newer graph.
+      if (this.graph === graph) void this.panel?.webview.postMessage({ type: "comparisonState", graphKey, requestId: message.requestId,
+        baselinePath: this.comparisonUri?.fsPath, result: this.comparisonResult, ...value });
+    };
+    if (this.comparisonBusy) { reply({ error: "A baseline/comparison operation is already in progress. Try again when its dialog closes." }); return; }
+    this.comparisonBusy = true;
+    try {
+      if (message.action === "save") {
+        const baseline = createAnalysisBaseline(graph), content = `${JSON.stringify(baseline, null, 2)}\n`;
+        if (Buffer.byteLength(content) > 64 * 1024 * 1024) throw new Error("Baseline exceeds the 64 MiB safety limit.");
+        const uri = await this.save(content, "json", "utf8", `${path.basename(graph.metadata.root)}-analysis-baseline.json`, true);
+        if (uri && this.graph === graph) { await this.rememberBaseline(uri); this.services.output?.appendLine(`[MATLAB Viz] Analysis baseline saved: ${uri.fsPath}; ${graph.nodes.length} nodes, ${graph.edges.length} links. Complete original analysis; no MATLAB execution.`); }
+      } else if (message.action === "load") {
+        const uris = await vscode.window.showOpenDialog({ canSelectFiles: true, canSelectFolders: false, canSelectMany: false,
+          filters: { "MATLAB Viz baseline": ["json"] }, defaultUri: this.comparisonUri });
+        const uri = uris?.[0];
+        if (uri) {
+          const baseline = await this.readBaseline(uri);
+          if (this.graph !== graph) return;
+          compareAnalyses(baseline, graph); // Refuse incompatible root/type before replacing a good selection.
+          await this.rememberBaseline(uri);
+          this.services.output?.appendLine(`[MATLAB Viz] Analysis baseline loaded: ${uri.fsPath}. No MATLAB execution.`);
+        }
+      } else if (message.action === "clear") {
+        await this.rememberBaseline(undefined); // Forget the reference; never delete the user's baseline file.
+      } else if (message.action === "compare") {
+        if (!this.comparisonUri) throw new Error("Save or load an analysis baseline first.");
+        const baseline = await this.readBaseline(this.comparisonUri);
+        if (this.graph !== graph) return;
+        const scope: { mode: "dependencies" | "impact"; nodeId: string } | undefined = message.scope === "dependencies" || message.scope === "impact"
+          ? { mode: message.scope, nodeId: message.nodeId ?? "" } : undefined;
+        if (message.scope && !["all", "dependencies", "impact"].includes(message.scope)) throw new Error("Unsupported comparison scope.");
+        const report = compareAnalyses(baseline, graph, scope);
+        this.comparisonResult = { id: nonce(), report };
+        this.services.output?.appendLine(`[MATLAB Viz] Analysis comparison: ${report.nodes.added.length} nodes added, ${report.nodes.removed.length} removed, ${report.nodes.changed.length} metadata changed; ${report.links.added.length} relationships added, ${report.links.removed.length} removed; ${report.notices.added.length} notices newly reported, ${report.notices.removed.length} no longer reported; coverage differences=${report.coverageDifferences.length}; scope=${message.scope ?? "all"}. No MATLAB execution.`);
+      } else if (message.action === "export") {
+        const result = this.comparisonResult;
+        if (!result || result.id !== message.comparisonId) throw new Error("This comparison is no longer current. Compare the analyses again before exporting.");
+        if (message.format !== "json" && message.format !== "md") throw new Error("Choose Markdown or JSON for a comparison report.");
+        // Export the host-owned displayed snapshot, not a fresh read of a file
+        // that may have changed since comparison, nor webview-supplied records.
+        await this.save(message.format === "json" ? `${JSON.stringify(result.report, null, 2)}\n` : comparisonToMarkdown(result.report),
+          message.format, "utf8", `${path.basename(graph.metadata.root)}-analysis-comparison.${message.format}`, true);
+      } else if (message.action !== "info") throw new Error("Unknown baseline/comparison action.");
+      reply({});
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      this.services.output?.error(`Analysis comparison failed: ${reason}`);
+      reply({ error: reason });
+    } finally {
+      // Notifications are deliberately not awaited: dismissing one must never
+      // hold the operation lock or prevent retrying after a failed file read.
+      this.comparisonBusy = false;
+    }
+  }
+
+  private async save(content: string, extension: string, encoding: "utf8" | "base64", reportName?: string, propagateError = false): Promise<vscode.Uri | undefined> {
     try {
       const root = this.graph?.metadata.root ?? "matlab-dependencies";
-      const defaultName = `${path.basename(root)}-dependencies.${extension}`;
+      const defaultName = reportName ?? `${path.basename(root)}-dependencies.${extension}`;
       const uri = await vscode.window.showSaveDialog({
         defaultUri: this.lastExportDirectory ? vscode.Uri.joinPath(this.lastExportDirectory, defaultName) : vscode.Uri.file(path.join(root, defaultName)),
         filters: { [extension.toUpperCase()]: [extension] }
@@ -324,7 +478,12 @@ export class GraphPanel implements vscode.Disposable {
       catch (error) { this.services.output?.warn(`Export saved, but destination preference could not be stored: ${String(error)}`); }
       this.services.output?.appendLine(`[MATLAB Viz] Export saved: ${uri.fsPath} (${extension.toUpperCase()}, ${buffer.length} bytes).`);
       void vscode.window.showInformationMessage(`MATLAB Viz exported ${path.basename(uri.fsPath)}.`);
-    } catch (error) { this.reportExportError(error instanceof Error ? error.message : String(error)); }
+      return uri;
+    } catch (error) {
+      this.reportExportError(error instanceof Error ? error.message : String(error));
+      if (propagateError) throw error;
+      return undefined;
+    }
   }
 
   private reportExportError(message: string): void {
@@ -371,6 +530,7 @@ export class GraphPanel implements vscode.Disposable {
     <select id="direction" aria-label="Trace direction">
       <option value="all">Entire graph</option><option value="dependencies">Dependencies</option>
       <option value="impact">Impact</option>
+      <option value="report" hidden disabled>Report scope</option>
     </select>
     <label id="depth-label"><span id="depth-text">Trace depth</span> <input id="depth" type="number" min="1" max="20" value="3"></label>
     <label title="Visibility only: show external nodes already present in this graph. It does not analyze additional files."><input id="external" type="checkbox" checked> Show external nodes</label>
@@ -380,6 +540,9 @@ export class GraphPanel implements vscode.Disposable {
     <button id="fit" title="Fit graph to view">Fit</button>
     <button id="refresh" title="Rerun analysis; function hierarchies use the displayed depth">Refresh</button>
     <button id="problems" title="Show MATLAB analysis notices" hidden>Notices</button>
+    <button id="entry-point-report" title="Select an original file node to report all its analyzed outgoing dependencies, with scoped notices. No MATLAB rerun." disabled>Entry-point report</button>
+    <button id="impact-report" title="Select an original file node to report all direct/transitive analyzed dependents. Potential change exposure, not runtime validation. No MATLAB rerun." disabled>Impact report</button>
+    <button id="compare-analyses" title="Save/load a complete analysis baseline and compare original evidence; independent of display filters. No MATLAB execution.">Compare analyses</button>
     <button id="export" title="Export graph">Export</button>
   </header>
   <section id="analysis-status" role="status" aria-live="polite" hidden>
@@ -387,6 +550,9 @@ export class GraphPanel implements vscode.Disposable {
     <button id="status-refresh">Refresh displayed graph</button><button id="status-logs">Show logs</button>
   </section>
   <div id="summary" role="status">No graph loaded</div>
+  <section id="report-scope-status" role="status" aria-live="polite" hidden>
+    <span id="report-scope-text"></span><button id="clear-dependency-path" hidden>Clear dependency path</button><button id="return-report-view">Return to previous view</button>
+  </section>
   <main id="graph-main">
     <section id="canvas-wrap"><svg id="graph" role="img" aria-label="MATLAB dependency graph"></svg></section>
     <div id="details-resizer" role="separator" tabindex="0" aria-label="Resize details panel" aria-orientation="vertical" aria-controls="details" title="Drag to resize details. Arrow keys resize; Shift takes larger steps; Home/End set limits; Enter or double-click resets."></div>

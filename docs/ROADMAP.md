@@ -22,16 +22,18 @@
 - MATLAB package, class-folder, namespace, and inheritance visualization
 - [x] Saved Simulink model/subsystem reference metadata with explicit folder-scope limits (0.3.11)
 - Problems and required-products panes
-- Source-control change and blast-radius graph
+- [x] Saved-analysis comparison and selected dependency/impact scope differences (0.3.20; not an automatic Git/source-content diff)
 
 ## 0.3 — large graph workflows
 
 - [x] Folder/package grouping and collapsible summary nodes (0.3.12; flat first version)
-- Saved graph workspaces, node positions, notes, and manual edges
+- [x] Persisted graph controls, node positions and view restoration
+- Notes and manual edges
 - [x] Original-graph cyclic strongly connected components and cycle explorer (0.3.14)
 - Community detection and centrality ranking
 - Minimap and virtualized rendering for very large projects
-- Compare two graph snapshots
+- [x] Complete analysis baselines, evidence comparison and Markdown/JSON reports (0.3.20)
+- [x] MIT local release preparation and reproducible tagged-package workflow (0.3.21; publication still on hold)
 
 ## 1.0 — production release
 

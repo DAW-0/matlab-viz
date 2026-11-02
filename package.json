@@ -2,8 +2,9 @@
   "name": "matlab-viz",
   "displayName": "MATLAB Viz",
   "description": "Interactive MATLAB and Simulink dependency graphs powered by MATLAB's native dependency analysis.",
-  "version": "0.3.14",
+  "version": "0.3.21",
   "publisher": "daw-0",
+  "license": "MIT",
   "private": true,
   "repository": {
     "type": "git",
@@ -14,7 +15,12 @@
     "url": "https://github.com/DAW-0/matlab-viz/issues"
   },
   "engines": {
-    "vscode": "^1.95.0"
+    "vscode": "^1.143.0",
+    "node": "^22.13.0 || >=24"
+  },
+  "capabilities": {
+    "untrustedWorkspaces": { "supported": false, "description": "MATLAB Project analysis can run project-controlled startup/shutdown tasks. Trust the workspace before using MATLAB Viz." },
+    "virtualWorkspaces": { "supported": false, "description": "This development build is validated only with a local Windows filesystem and a local MATLAB installation." }
   },
   "categories": [
     "Visualization",
@@ -276,23 +282,26 @@
     "build": "node esbuild.mjs",
     "watch": "node esbuild.mjs --watch",
     "check": "tsc --noEmit",
-    "lint": "eslint src test --ext .ts",
+    "lint": "eslint \"src/**/*.ts\" \"test/**/*.ts\"",
     "test": "node --test \"dist-test/test/*.test.js\"",
     "test:compile": "tsc -p tsconfig.test.json",
     "package": "npm run check && npm run build && vsce package",
+    "package:release": "node scripts/packageRelease.mjs",
+    "package:check": "node scripts/checkPackage.mjs",
     "vscode:prepublish": "npm run check && npm run build"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
-    "@types/vscode": "^1.95.0",
-    "@typescript-eslint/eslint-plugin": "^8.18.0",
-    "@typescript-eslint/parser": "^8.18.0",
+    "@types/vscode": "1.95.0",
+    "@eslint/js": "10.0.1",
     "@vscode/vsce": "^4.1.0",
     "esbuild": "^0.28.2",
-    "eslint": "^8.57.1",
+    "eslint": "10.14.0",
+    "typescript-eslint": "8.72.1",
     "typescript": "^5.7.2"
   },
   "overrides": {
-    "@azure/msal-node": "^7.1.0"
+    "@azure/msal-node": "^7.1.0",
+    "minimatch@10.2.6": "11.0.1"
   }
 }
