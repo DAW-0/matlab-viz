@@ -48,10 +48,12 @@ main[data-resizing="true"], main[data-resizing="true"] * { cursor: col-resize !i
 .problem-severity.warning { color: var(--vscode-editorWarning-foreground, #cca700); }
 .problem-message { margin: 4px 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 .edge { stroke: var(--edge); stroke-width: 1.2; opacity: .62; fill: none; marker-end: url(#arrow); cursor: pointer; }
+.edge.cyclic { stroke: var(--vscode-charts-purple, #b86dda); stroke-width: 2.4; opacity: 1; }
 .edge.highlight { stroke: var(--selected); stroke-width: 2.4; opacity: 1; }
 .node { cursor: pointer; }
 .node rect { fill: var(--node-fill); stroke: var(--node-stroke); stroke-width: 1.5; rx: 5; filter: url(#shadow); }
 .node.external rect { stroke: var(--vscode-charts-yellow, #d6a500); stroke-dasharray: 5 3; }
+.node.cyclic rect { stroke: var(--vscode-charts-purple, #b86dda); stroke-width: 2.5; }
 .node.missing rect { stroke: var(--vscode-errorForeground, #e33); stroke-width: 2.5; }
 .node.selected rect { stroke: var(--selected); stroke-width: 3; }
 .node.dim { opacity: .15; }

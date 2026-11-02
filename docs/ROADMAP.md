@@ -28,7 +28,7 @@
 
 - [x] Folder/package grouping and collapsible summary nodes (0.3.12; flat first version)
 - Saved graph workspaces, node positions, notes, and manual edges
-- Strongly connected components and cycle explorer
+- [x] Original-graph cyclic strongly connected components and cycle explorer (0.3.14)
 - Community detection and centrality ranking
 - Minimap and virtualized rendering for very large projects
 - Compare two graph snapshots

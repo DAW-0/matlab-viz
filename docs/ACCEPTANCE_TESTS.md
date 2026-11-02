@@ -189,6 +189,25 @@ viewport and pixel visibility. It also reruns the 515-file snapshot, five export
 formats, restart and actual MATLAB Refresh/error checks. See
 [0.3.13 validation](VALIDATION_0.3.13.md) and the updated [grouping guide](GROUPING.md).
 
+## Tenth batch: original-graph cycle explorer (0.3.14)
+
+Cycle detection uses original analyzed links, not folder/package summary arrows.
+The browser counts cyclic SCCs, retains all internal edge evidence and shows one
+actual directed witness. Direct self-links, multiple loops in one component,
+parallel evidence, tails/bridges and grouped false-cycle traps are covered.
+Independent reachability comparisons and a 50,000-node chain/ring validate
+membership and stack safety. The loaded historical 515-file snapshot has two
+two-file cyclic components/four internal original edges; this is not a fresh
+repository analysis or resolution of the historical 694-edge discrepancy.
+
+Webview/native tests cover highlight/isolation, grouped membership/subset counts,
+external-filter partial loops, member navigation/pagination, graph-type semantics,
+five export formats, original data retention, restored selection/details/custom
+viewport, actual Reload Window and failure preservation. A real MATLAB Refresh
+of an owned acyclic fixture replaces synthetic native test data and clears stale
+cycle state. No WEST source/model is edited or executed. See the
+[cycle guide](CYCLES.md) for coverage limits and export scope.
+
 ## Host checks after the first repair batch
 
 Automated tests cover the data and controller logic. The isolated real-editor

@@ -95,6 +95,12 @@ export function symbolHarness(sourceFiles: Record<string, string>) {
     async refresh(anchor: any) {
       const result = await analyzer.analyzeReferences(options, cancellationToken(), anchor);
       return JSON.parse(JSON.stringify(result.graph)) as DependencyGraph;
+    },
+    async analyzeCall(file: string, word: string, direction: "both" | "incoming" | "outgoing" = "outgoing", occurrence = 0) {
+      const target = location(file, word, occurrence);
+      window.activeTextEditor = { document: document(file), selection: { active: target.range.start } };
+      const result = await analyzer.analyzeCallHierarchy(direction, options, cancellationToken());
+      return JSON.parse(JSON.stringify(result.graph)) as DependencyGraph;
     }
   };
 }

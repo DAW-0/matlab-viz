@@ -4,7 +4,7 @@ param(
     [string]$EditorExecutable,
     [string]$GraphFile,
     [string]$WorkspaceRoot,
-    [ValidateSet('prepare-call', 'restore-call', 'reload-call', 'prepare-reference', 'restore-reference', 'reload-reference', 'provider-timeout', 'visual', 'accuracy', 'repository-accuracy', 'clarity', 'simulink', 'grouping', 'restore-grouping', 'group-refresh')]
+    [ValidateSet('prepare-call', 'restore-call', 'reload-call', 'prepare-reference', 'restore-reference', 'reload-reference', 'provider-timeout', 'visual', 'accuracy', 'repository-accuracy', 'clarity', 'simulink', 'grouping', 'restore-grouping', 'group-refresh', 'cycles', 'restore-cycles', 'reload-cycles', 'cycles-refresh', 'cycles-calls')]
     [string[]]$Phases = @('prepare-call', 'restore-call', 'reload-call', 'prepare-reference', 'restore-reference', 'reload-reference', 'provider-timeout')
 )
 

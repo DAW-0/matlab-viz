@@ -5,7 +5,7 @@ const vscode = require('vscode');
 // uses in-memory storage and therefore cannot test full editor restarts.
 exports.activate = () => {
   const stage = process.env.MATLAB_VIZ_RESTORE_STAGE;
-  const testModule = ['grouping', 'restore-grouping', 'group-refresh'].includes(stage) ? 'grouping.js' : stage === 'simulink' ? 'simulink.js' : stage === 'clarity' ? 'clarity.js' : stage === 'visual' ? 'visual.js' : stage === 'accuracy' ? 'accuracy.js' : stage === 'repository-accuracy' ? 'repositoryAccuracy.js' : 'restoration.js';
+  const testModule = ['cycles', 'restore-cycles', 'reload-cycles', 'cycles-refresh', 'cycles-calls'].includes(stage) ? 'cycles.js' : ['grouping', 'restore-grouping', 'group-refresh'].includes(stage) ? 'grouping.js' : stage === 'simulink' ? 'simulink.js' : stage === 'clarity' ? 'clarity.js' : stage === 'visual' ? 'visual.js' : stage === 'accuracy' ? 'accuracy.js' : stage === 'repository-accuracy' ? 'repositoryAccuracy.js' : 'restoration.js';
   const runner = require(path.resolve(__dirname, '../../../dist-test/test/host', testModule));
   void runner.run().then(
     () => vscode.commands.executeCommand('workbench.action.quit'),

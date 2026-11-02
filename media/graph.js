@@ -13,6 +13,14 @@
   let expandedGroups = new Set();
   let positionSets = new Map();
   let renderedData = { nodes: [], edges: [] };
+  const cycleApi = globalThis.MatlabVizCycles;
+  const cycleMode = document.getElementById("cycle-mode");
+  const cycleComponent = document.getElementById("cycle-component");
+  const cyclesButton = document.getElementById("cycles");
+  let cycleIndex = { components: [], byId: new Map() };
+  let cycleMarks = { components: [], nodes: new Set(), edges: new Set() };
+  let cycleMemberPage = 0;
+  let renderedCycleMode = "off";
   const direction = document.getElementById("direction");
   const depth = document.getElementById("depth");
   const depthLabel = document.getElementById("depth-label");
@@ -170,7 +178,9 @@
     vscode.setState({
       version: 1, geometryVersion: 1, graphKey,
       controls: { search: search.value, layout: layout.value, grouping: grouping.value || "none", direction: direction.value,
+        cycleMode: cycleMode.value || "off", cycleComponent: cycleComponent.value || "all",
         depth: Number(depth.value), external: external.checked, isolated: isolated.checked },
+      cycleMemberPage,
       selectedId, detailSelection, positions: [...positions], expandedGroups: [...expandedGroups],
       groupPositions: [...positionSets].map(([mode, points]) => [mode, [...points]]),
       transform: { ...transform }, viewportCustomized, detailsWidth, analysisStatus
@@ -203,6 +213,15 @@
     if (Number.isInteger(controls.depth) && controls.depth >= 1 && controls.depth <= 20) depth.value = String(controls.depth);
     if (typeof controls.external === "boolean") external.checked = controls.external;
     if (typeof controls.isolated === "boolean") isolated.checked = controls.isolated;
+    const validComponent = controls.cycleComponent === "all" || cycleIndex.byId.has(controls.cycleComponent);
+    cycleComponent.value = validComponent ? controls.cycleComponent : "all";
+    cycleMode.value = validComponent && cycleIndex.components.length && ["highlight", "isolate"].includes(controls.cycleMode) ? controls.cycleMode : "off";
+    cycleMemberPage = Number.isInteger(value.cycleMemberPage) && value.cycleMemberPage >= 0 ? value.cycleMemberPage : 0;
+    refreshCycleMarks();
+    if (cycleMode.value === "isolate") {
+      direction.value = "all";
+      for (const id of cycleMarks.nodes) { const owner = groupIndex.membership.get(id); if (owner) expandedGroups.add(owner); }
+    }
     const ids = new Set([...graph.nodes.map((node) => node.id), ...groupIndex.groups.keys()]);
     selectedId = ids.has(value.selectedId) ? value.selectedId : undefined;
     if (!selectedId) direction.value = "all";
@@ -234,7 +253,7 @@
     if (selection && ((selection.kind === "node" && ids.has(selection.id))
       || (selection.kind === "edge" && currentGraph().edges.some((edge) => edge.id === selection.id))
       || (selection.kind === "group" && groupIndex.groups.has(selection.id))
-      || selection.kind === "groups" || selection.kind === "problems")) detailSelection = selection;
+      || selection.kind === "cycles" || selection.kind === "groups" || selection.kind === "problems")) detailSelection = selection;
     return true;
   }
 
@@ -276,6 +295,7 @@
     else if (detailSelection?.kind === "problems") showProblems();
     else if (detailSelection?.kind === "group") showGroup(groupIndex.groups.get(detailSelection.id));
     else if (detailSelection?.kind === "groups") showGroups();
+    else if (detailSelection?.kind === "cycles") showCycles();
   }
 
   function element(name, attributes = {}) {
@@ -306,11 +326,115 @@
       const traced = trace(selectedId, direction.value, Number(depth.value) || 3);
       allowed = new Set([...allowed].filter((id) => traced.has(id)));
     }
+    if (cycleMode.value === "isolate") allowed = new Set([...allowed].filter((id) => cycleMarks.nodes.has(id)));
     const data = {
       nodes: graph.nodes.filter((node) => allowed.has(node.id)),
-      edges: graph.edges.filter((edge) => allowed.has(edge.source) && allowed.has(edge.target))
+      edges: graph.edges.filter((edge) => allowed.has(edge.source) && allowed.has(edge.target)
+        && (cycleMode.value !== "isolate" || cycleMarks.edges.has(edge.id)))
     };
     return groupingApi.project(data, groupIndex, expandedGroups, graphTerms().items);
+  }
+
+  function rebuildCycles() {
+    // Always analyze the unprojected result. Group A -> B -> A can be drawn
+    // from unrelated A1 -> B1 and B2 -> A2 edges without ANY original cycle.
+    cycleIndex = cycleApi.analyze(graph);
+    cycleComponent.replaceChildren();
+    const all = document.createElement("option"); all.value = "all"; all.textContent = "All cyclic components"; cycleComponent.appendChild(all);
+    cycleIndex.components.forEach((component, index) => {
+      const option = document.createElement("option"); option.value = component.id;
+      option.textContent = `Component ${index + 1} (${component.nodes.length} ${graphTerms().items})`;
+      option.title = component.nodes[0].relativePath || component.nodes[0].label; cycleComponent.appendChild(option);
+    });
+    cycleComponent.value = "all"; cycleMode.value = "off"; cycleMemberPage = 0;
+    cyclesButton.textContent = `Cycles (${cycleIndex.components.length})`;
+    cycleComponent.disabled = cycleMode.disabled = cycleIndex.components.length === 0;
+    refreshCycleMarks();
+  }
+
+  function refreshCycleMarks() {
+    cycleMarks = cycleApi.selection(cycleIndex, cycleComponent.value || "all");
+    const count = cycleMarks.components.length === 1 ? cycleMarks.components[0].nodes.length : 0;
+    cycleMemberPage = Math.max(0, Math.min(cycleMemberPage, Math.max(0, Math.ceil(count / 100) - 1)));
+  }
+
+  function cyclicNode(node) {
+    return cycleMode.value !== "off" && (node.members ? node.members.some((member) => cycleMarks.nodes.has(member.id)) : cycleMarks.nodes.has(node.id));
+  }
+
+  function cyclicEdgeCount(edge) {
+    if (cycleMode.value === "off") return 0;
+    return edge.originalEdges ? edge.originalEdges.filter((original) => cycleMarks.edges.has(original.id)).length : Number(cycleMarks.edges.has(edge.id));
+  }
+
+  function applyCycleView() {
+    const wasIsolated = renderedCycleMode === "isolate";
+    refreshCycleMarks();
+    if (cycleMode.value === "isolate") {
+      // Isolation is an independent view, not a trace seeded at an arbitrary
+      // selection. Reveal its ORIGINAL members rather than hiding every loop
+      // inside summary nodes. Visibility filters remain explicit and respected.
+      direction.value = "all";
+      const expanded = new Set(expandedGroups);
+      for (const id of cycleMarks.nodes) { const owner = groupIndex.membership.get(id); if (owner) expanded.add(owner); }
+      if (!setExpandedGroups(expanded)) render();
+    } else render();
+    pointerNodeId = undefined; updateDepthControl();
+    if (cycleMode.value === "isolate" || wasIsolated) fit();
+    else if (cycleMode.value === "highlight" && cycleComponent.value !== "all") {
+      const data = currentGraph(), nodes = data.nodes.filter(cyclicNode), ids = new Set(nodes.map((node) => node.id));
+      if (nodes.length) {
+        const edges = data.edges.filter((edge) => ids.has(edge.source) && ids.has(edge.target) && cyclicEdgeCount(edge));
+        const rect = svg.getBoundingClientRect();
+        transform = geometry.fit(geometry.bounds({ nodes, edges }, positions, sizes), rect.width, rect.height);
+        viewportCustomized = true; updateTransform();
+      }
+    }
+    showCycles();
+  }
+
+  function showCycles() {
+    detailSelection = { kind: "cycles" }; details.replaceChildren();
+    const heading = document.createElement("h2"); heading.textContent = `Cyclic components (${cycleIndex.components.length})`; details.appendChild(heading);
+    const explanation = document.createElement("p"); explanation.textContent = "Computed from original analyzed links, never grouped arrows. A component can contain several loops; the example is one actual directed loop. Missing dependencies or analysis limits can omit cycles. Reference-graph cycles do not prove runtime recursion."; details.appendChild(explanation);
+    if (!cycleIndex.components.length) {
+      const empty = document.createElement("p"); empty.textContent = "No directed cycles found in the loaded analysis. This is not proof that the complete repository is acyclic."; details.appendChild(empty); saveStateSoon(); return;
+    }
+    const original = currentGraph().original, visible = new Set(original.nodes.map((node) => node.id));
+    const visibleEdges = new Set(original.edges.map((edge) => edge.id));
+    const status = document.createElement("p"); status.textContent = `${[...cycleMarks.nodes].filter((id) => visible.has(id)).length}/${cycleMarks.nodes.size} selected component members and ${[...cycleMarks.edges].filter((id) => visibleEdges.has(id)).length}/${cycleMarks.edges.size} internal links currently visible. Filters/tracing may hide part of a loop; highlighting never implies a complete visible loop.`; details.appendChild(status);
+    const button = (label, action) => { const value = document.createElement("button"); value.textContent = label; value.addEventListener("click", action); details.appendChild(value); };
+    button("Highlight selection", () => { cycleMode.value = "highlight"; applyCycleView(); });
+    button("Isolate selection", () => { cycleMode.value = "isolate"; applyCycleView(); });
+    button("Turn cycle view off", () => { cycleMode.value = "off"; applyCycleView(); });
+    if (cycleMarks.components.length !== 1) {
+      for (const component of cycleIndex.components.slice(0, 50)) {
+        const number = cycleIndex.components.indexOf(component) + 1;
+        button(`Component ${number}: ${component.nodes.length} ${graphTerms().items}, ${component.edges.length} internal links`, () => {
+          cycleComponent.value = component.id; cycleMemberPage = 0;
+          if (cycleMode.value === "off") cycleMode.value = "highlight"; applyCycleView();
+        });
+      }
+      if (cycleIndex.components.length > 50) {
+        const more = document.createElement("p"); more.textContent = "First 50 components listed here; use the toolbar selector to inspect any component."; details.appendChild(more);
+      }
+    } else {
+      const component = cycleMarks.components[0];
+      const info = document.createElement("p"); info.textContent = `${component.nodes.length} ${graphTerms().items}; ${component.edges.length} internal ${graphTerms().edges}; ${component.selfLinks} self-links${isFunctionGraph() && component.selfLinks ? " (direct recursion)" : ""}.`; details.appendChild(info);
+      const byId = new Map(component.nodes.map((node) => [node.id, node]));
+      const path = component.witness.nodes, example = document.createElement("p");
+      example.textContent = `Example directed loop${path.length > 51 ? " (first 50 nodes; truncated)" : ""}: ${path.slice(0, path.length > 51 ? 50 : 51).map((id) => byId.get(id)?.relativePath || byId.get(id)?.label || id).join(" → ")}`;
+      details.appendChild(example);
+      const page = document.createElement("p"); page.textContent = `Members ${cycleMemberPage * 100 + 1}–${Math.min(component.nodes.length, (cycleMemberPage + 1) * 100)} of ${component.nodes.length}. Source navigation does not execute MATLAB.`; details.appendChild(page);
+      if (cycleMemberPage > 0) button("Previous 100 members", () => { cycleMemberPage--; showCycles(); });
+      for (const node of component.nodes.slice(cycleMemberPage * 100, (cycleMemberPage + 1) * 100)) {
+        button(`Open: ${node.relativePath || node.label}`, () => vscode.postMessage({ type: "openFile", path: node.path, line: node.line, character: node.character }));
+      }
+      if ((cycleMemberPage + 1) * 100 < component.nodes.length) button("Next 100 members", () => { cycleMemberPage++; showCycles(); });
+    }
+    const exports = document.createElement("p"); exports.textContent = "SVG/PNG export the current highlighted/isolated view. JSON/DOT/CSV retain the complete original analysis, not this selection."; details.appendChild(exports);
+    button("Export graph…", () => vscode.postMessage({ type: "export" }));
+    saveStateSoon();
   }
 
   function rebuildGroups() {
@@ -474,10 +598,13 @@
 
   function updateDepthControl() {
     const functionGraph = isFunctionGraph();
+    direction.disabled = cycleMode.value === "isolate";
+    direction.title = cycleMode.value === "isolate" ? "Cycle isolation selects component members. Switch to Highlight cycles or Cycles Off to use ordinary tracing." : "Trace original relationships from the selected node or group.";
     depthText.textContent = functionGraph ? "Analysis depth" : "Trace depth";
-    depth.disabled = !functionGraph && direction.value === "all";
+    depth.disabled = !functionGraph && (direction.value === "all" || cycleMode.value === "isolate");
     depthLabel.title = functionGraph
       ? "Maximum caller/callee analysis depth. Refresh rebuilds the hierarchy to this depth."
+      : cycleMode.value === "isolate" ? "Cycle isolation includes component members independently of trace depth. Switch to Highlight cycles or Cycles Off to trace."
       : direction.value === "all"
         ? "Select Dependencies or Impact to filter the displayed graph by trace depth."
         : "Maximum dependency or impact depth shown from the selected node. This does not rerun or expand repository analysis.";
@@ -597,6 +724,7 @@
     nodeElements.clear(); edgeElements.clear();
     const data = currentGraph();
     renderedData = data;
+    renderedCycleMode = cycleMode.value;
     data.nodes.forEach(nodeSize);
     if (reposition || data.nodes.some((node) => !positions.has(node.id))) calculateLayout(layout.value);
     const defs = element("defs");
@@ -617,19 +745,22 @@
     const itemLabel = graphTerms().items, edgeLabel = graphTerms().edges;
     const original = data.original || data;
     const groupSummary = groupIndex.groups.size ? ` · ${data.nodes.filter((node) => node.group).length} collapsed groups · ${data.edges.length} displayed links · ${data.internalEdges} internal ${edgeLabel}` : "";
-    summary.textContent = `${original.nodes.length}/${graph.nodes.length} ${itemLabel} · ${original.edges.length}/${graph.edges.length} ${edgeLabel}${groupSummary} · ${graph.products.length} product references · ${problemSummary()} · ${graph.metadata.mode} · ${graph.metadata.durationSeconds.toFixed(1)} s`;
+    summary.textContent = `${original.nodes.length}/${graph.nodes.length} ${itemLabel} · ${original.edges.length}/${graph.edges.length} ${edgeLabel}${groupSummary} · ${cycleIndex.components.length} cyclic components${cycleMode.value !== "off" ? ` (${cycleMode.value})` : ""} · ${graph.products.length} product references · ${problemSummary()} · ${graph.metadata.mode} · ${graph.metadata.durationSeconds.toFixed(1)} s`;
     summary.title = summary.textContent;
     if (detailSelection?.kind === "group") showGroup(groupIndex.groups.get(detailSelection.id));
+    else if (detailSelection?.kind === "cycles") showCycles();
   }
 
   function drawEdge(edge) {
     const value = geometry.edgeGeometry(edge, positions, sizes);
     if (!value) return;
-    const line = element(value.d ? "path" : "line", { class: `edge${isSelected(edge.source) || isSelected(edge.target) ? " highlight" : ""}`, "data-edge-id": edge.id, ...(edge.count ? { "data-link-count": edge.count } : {}) });
+    const cyclic = cyclicEdgeCount(edge);
+    const line = element(value.d ? "path" : "line", { class: `edge${cyclic ? " cyclic" : ""}${isSelected(edge.source) || isSelected(edge.target) ? " highlight" : ""}`, "data-edge-id": edge.id,
+      ...(edge.count ? { "data-link-count": edge.count } : {}), ...(cyclic ? { "data-cyclic-links": cyclic } : {}) });
     for (const [name, item] of Object.entries(value)) if (name !== "bounds") line.setAttribute(name, item);
     edgeElements.set(edge.id, line);
     line.addEventListener("click", (event) => { event.stopPropagation(); showEdge(edge); });
-    line.addEventListener("mouseenter", (event) => showTooltip(event, edge.count ? `${edge.count} original ${graphTerms().edges}` : edge.kind));
+    line.addEventListener("mouseenter", (event) => showTooltip(event, `${edge.count ? `${edge.count} original ${graphTerms().edges}` : edge.kind}${cyclic ? `; ${cyclic} highlighted cyclic links` : ""}`));
     line.addEventListener("mouseleave", hideTooltip);
     world.appendChild(line);
     if (edge.count) {
@@ -641,7 +772,7 @@
   function drawNode(node, query) {
     const point = positions.get(node.id), size = nodeSize(node);
     const matches = !query || `${node.label} ${node.relativePath} ${node.path} ${node.searchText || ""}`.toLowerCase().includes(query);
-    const group = element("g", { transform: `translate(${point.x},${point.y})`, "data-node-id": node.id, ...(node.group ? { "data-group-id": node.id, tabindex: 0, role: "button", "aria-label": `${node.relativePath}; Enter to expand` } : {}), class: `node${node.group ? " cluster" : ""}${node.external ? " external" : ""}${node.missing ? " missing" : ""}${isSelected(node.id) ? " selected" : ""}${matches ? "" : " dim"}` });
+    const group = element("g", { transform: `translate(${point.x},${point.y})`, "data-node-id": node.id, ...(node.group ? { "data-group-id": node.id, tabindex: 0, role: "button", "aria-label": `${node.relativePath}; Enter to expand` } : {}), class: `node${node.group ? " cluster" : ""}${node.external ? " external" : ""}${cyclicNode(node) ? " cyclic" : ""}${node.missing ? " missing" : ""}${isSelected(node.id) ? " selected" : ""}${matches ? "" : " dim"}` });
     nodeElements.set(node.id, group);
     group.appendChild(element("rect", { x: -size.width / 2, y: -size.height / 2, width: size.width, height: size.height }));
     const text = element("text", { "text-anchor": "middle", "xml:space": "preserve" });
@@ -694,6 +825,12 @@
     counts.textContent = `${outgoing} ${terms.outgoing[outgoing === 1 ? 0 : 1]} · ${incoming} ${terms.incoming[incoming === 1 ? 0 : 1]}`;
     details.appendChild(counts);
     const button = document.createElement("button"); button.textContent = node.line === undefined ? "Open file" : "Open symbol"; button.addEventListener("click", () => vscode.postMessage({ type: "openFile", path: node.path, line: node.line, character: node.character })); details.appendChild(button);
+    const component = cycleIndex.nodeToComponent.get(node.id);
+    if (component) {
+      const inspect = document.createElement("button"); inspect.textContent = "Inspect cyclic component";
+      inspect.addEventListener("click", () => { cycleComponent.value = component; cycleMode.value = "highlight"; cycleMemberPage = 0; applyCycleView(); });
+      details.appendChild(inspect);
+    }
   }
 
   function showEdge(edge) {
@@ -706,6 +843,9 @@
     if (edge.originalEdges) {
       heading.textContent = `Grouped ${graphTerms().edges} (${edge.count})`;
       const explanation = document.createElement("p"); explanation.textContent = `${source?.label} → ${target?.label}. Counts are original graph links, not source occurrences. Internal links are summarized inside collapsed groups.`; details.appendChild(explanation);
+      if (cycleMode.value !== "off") {
+        const cyclic = document.createElement("p"); cyclic.textContent = `${cyclicEdgeCount(edge)}/${edge.count} original links are internal to the selected cyclic components; the aggregate arrow itself does not prove a cycle.`; details.appendChild(cyclic);
+      }
       // Explicit originals make mixed relationship types and direction auditable.
       for (const original of edge.originalEdges) {
         const from = graph.nodes.find((node) => node.id === original.source), to = graph.nodes.find((node) => node.id === original.target);
@@ -744,9 +884,12 @@
       const result = geometry.svgDocument(data, positions, sizes, {
         scope, transform, width: svg.clientWidth, height: svg.clientHeight, selectedId,
         selectedIds: new Set(data.nodes.filter((node) => isSelected(node.id)).map((node) => node.id)), search: search.value, fontFamily,
+        cyclicNodeIds: new Set(data.nodes.filter(cyclicNode).map((node) => node.id)),
+        cyclicEdgeCounts: new Map(data.edges.map((edge) => [edge.id, cyclicEdgeCount(edge)])),
+        cycleDescription: cycleMode.value === "off" ? "" : `Cycle view: ${cycleMode.value}; ${cycleMarks.components.length} original cyclic components selected. Filters may hide members; projected grouped arrows are not themselves proof of a cycle.`,
         colors: { background: css("--vscode-editor-background", "#fff"), text: css("--vscode-editor-foreground", "#222"),
           node: css("--vscode-charts-blue", "#1976d2"), edge: css("--vscode-descriptionForeground", "#888"),
-          selected: css("--vscode-focusBorder", "#c05a00"), external: css("--vscode-charts-yellow", "#a17700"), missing: css("--vscode-errorForeground", "#d32f2f") }
+          selected: css("--vscode-focusBorder", "#c05a00"), cyclic: css("--vscode-charts-purple", "#b86dda"), external: css("--vscode-charts-yellow", "#a17700"), missing: css("--vscode-errorForeground", "#d32f2f") }
       });
       const metadata = { scope, nodes: data.nodes.length, edges: data.edges.length };
       if (format === "svg") {
@@ -841,10 +984,16 @@
     // collapsed; repeated modes reuse positions without touching source data.
     positions = positionSets.get(grouping.value) || new Map(); positionSets.set(grouping.value, positions);
     expandedGroups = new Set(); rebuildGroups();
+    if (cycleMode.value === "isolate") for (const id of cycleMarks.nodes) { const owner = groupIndex.membership.get(id); if (owner) expandedGroups.add(owner); }
     if (selectedId && !graph.nodes.some((node) => node.id === selectedId)) { selectedId = undefined; direction.value = "all"; }
     resetDetails(); pointerNodeId = undefined; updateDepthControl(); render(); fit();
   });
   document.getElementById("groups").addEventListener("click", showGroups);
+  cyclesButton.addEventListener("click", showCycles);
+  cycleMode.addEventListener("change", applyCycleView);
+  cycleComponent.addEventListener("change", () => {
+    cycleMemberPage = 0; if (cycleMode.value === "off") cycleMode.value = "highlight"; applyCycleView();
+  });
   for (const action of ["collapse", "expand"]) document.getElementById(`${action}-groups`).addEventListener("click", () => {
     if (setExpandedGroups(action === "expand" ? new Set(groupIndex.groups.keys()) : new Set())) fit();
   });
@@ -879,6 +1028,10 @@
       graph = event.data.graph;
       graphKey = incomingKey;
       if (sameGraph) { if (event.data.analysisStatus !== undefined) showAnalysisStatus(event.data.analysisStatus); render(); return; }
+      // New analysis may merge/split components or change coverage. Recompute
+      // from original data and reset the cycle view; same-result serializer
+      // restoration below is the only path that reuses a saved cycle selection.
+      rebuildCycles();
       if (!keepGrouping) { grouping.value = "none"; expandedGroups = new Set(); positionSets = new Map(); }
       rebuildGroups(); expandedGroups = new Set([...expandedGroups].filter((id) => groupIndex.groups.has(id)));
       // A Refresh may remove many nodes. Prune all mode maps before saving state.

@@ -338,6 +338,7 @@ export class GraphPanel implements vscode.Disposable {
     const style = webview.asWebviewUri(vscode.Uri.joinPath(this.extensionUri, "media", "graph.css"));
     const geometry = webview.asWebviewUri(vscode.Uri.joinPath(this.extensionUri, "media", "graphGeometry.js"));
     const grouping = webview.asWebviewUri(vscode.Uri.joinPath(this.extensionUri, "media", "graphGrouping.js"));
+    const cycles = webview.asWebviewUri(vscode.Uri.joinPath(this.extensionUri, "media", "graphCycles.js"));
     return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -360,6 +361,13 @@ export class GraphPanel implements vscode.Disposable {
     <button id="groups" title="List groups and expand/collapse individual groups" disabled>Groups</button>
     <button id="collapse-groups" title="Collapse all groups" disabled>Collapse all</button>
     <button id="expand-groups" title="Expand all groups" disabled>Expand all</button>
+    <button id="cycles" title="Inspect cyclic strongly connected components of the original analysis; no MATLAB rerun">Cycles</button>
+    <select id="cycle-mode" aria-label="Cycle view" title="Highlight or isolate cyclic components detected in original file/symbol links, never grouped arrows">
+      <option value="off">Cycles: off</option><option value="highlight">Highlight cycles</option><option value="isolate">Isolate cycles</option>
+    </select>
+    <select id="cycle-component" aria-label="Cyclic component" title="A component can contain several loops; it is not a count of simple cycles">
+      <option value="all">All cyclic components</option>
+    </select>
     <select id="direction" aria-label="Trace direction">
       <option value="all">Entire graph</option><option value="dependencies">Dependencies</option>
       <option value="impact">Impact</option>
@@ -387,6 +395,7 @@ export class GraphPanel implements vscode.Disposable {
   <div id="tooltip" hidden></div>
   <script nonce="${token}" src="${geometry}"></script>
   <script nonce="${token}" src="${grouping}"></script>
+  <script nonce="${token}" src="${cycles}"></script>
   <script nonce="${token}" src="${script}"></script>
 </body>
 </html>`;

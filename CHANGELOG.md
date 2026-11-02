@@ -4,6 +4,20 @@ All notable changes to MATLAB Viz will be documented here.
 
 ## [Unreleased]
 
+## [0.3.14]
+
+### Fixed
+
+- Actual recursive self-calls are no longer discarded by the function call-hierarchy builder. Declaration-only references/signatures are excluded explicitly; handle creation, shadowed-array indexing and unresolved object receivers do not manufacture direct recursion. Provider-resolved function identity and proven package self-calls remain supported. Existing call graphs need Refresh to regenerate previously omitted self-links.
+
+### Added
+
+- Original-graph cyclic strongly connected component analysis with iterative traversal, stable component identities, all internal edge evidence, self-link counts and one real directed-loop example per component. Grouped projection arrows never manufacture cycles.
+- Cycle browser, single/all component selection, highlighting, isolation, source navigation, paginated members, node-to-component inspection and partial-visibility counts. Call-graph self-links identify direct recursion; reference cycles do not claim runtime behavior.
+- Cycle state/details/custom viewport restore with the same cached graph across restart/Reload Window. Failed analysis retains that view; successful new analysis recomputes components and resets stale cycle selection. Isolation clears/disables tracing, reveals original grouped members, and excludes intercomponent bridges.
+- SVG/PNG preserve cyclic markings and isolation; JSON/DOT/CSV remain the complete ungrouped original analysis. No graph schema change or MATLAB rerun is required to inspect cycles.
+- Independent reachability comparisons, 50,000-node chain/ring checks, webview integration tests, and native-editor menu/export/navigation/restart/Reload Window/failure/Refresh tests.
+
 ## [0.3.13]
 
 ### Fixed

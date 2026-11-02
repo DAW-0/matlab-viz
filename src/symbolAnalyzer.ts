@@ -36,6 +36,13 @@ interface LocatedCall {
   location: vscode.Location;
 }
 
+/** A handle depends on a function but is not itself an invocation. Keep the
+ * existing non-self handle discovery, without labelling @self as recursion. */
+function handleCandidate(source: string, candidate: { name: string; nameOffset: number }): boolean {
+  const simple = candidate.name.slice(candidate.name.lastIndexOf(".") + 1);
+  return source[candidate.nameOffset - candidate.name.length + simple.length - 1] === "@";
+}
+
 interface WorkspaceSyntaxIndex {
   symbolsByName: Map<string, ResolvedSymbol[]>;
   symbolsByUri: Map<string, ResolvedSymbol[]>;
@@ -183,7 +190,9 @@ export class SymbolAnalyzer {
         nodes.set(relatedId, call.symbol);
         const source = current.direction === "outgoing" ? currentId : relatedId;
         const target = current.direction === "outgoing" ? relatedId : currentId;
-        if (source === target) continue;
+        // A real self-call is recursion evidence, not a traversal duplicate.
+        // Declaration-only locations are excluded at discovery below. Keep
+        // the edge, but do not enqueue an already-scanned symbol again.
         const edgeKey = `${source}\n${target}`;
         const line = call.location.range.start.line + 1;
         const existing = edges.get(edgeKey);
@@ -199,7 +208,7 @@ export class SymbolAnalyzer {
             details: `call at ${this.relativePath(call.location.uri)}:${line}`
           });
         }
-        queue.push({ symbol: call.symbol, depth: current.depth + 1, direction: current.direction });
+        if (relatedId !== currentId) queue.push({ symbol: call.symbol, depth: current.depth + 1, direction: current.direction });
       }
     }
     if (nodes.size >= options.maximumNodes && queue.length > 0) {
@@ -397,7 +406,12 @@ export class SymbolAnalyzer {
     const document = await this.document(symbol.uri, token);
     const startOffset = document.offsetAt(symbol.range.start);
     const endOffset = document.offsetAt(symbol.range.end);
-    const candidates = findMatlabCallCandidates(document.getText(), startOffset, endOffset);
+    const declarationOffsets = new Set(findMatlabDeclarations(document.getText()).map((item) => item.nameOffset));
+    // The scanner returns candidates, including function signature parentheses.
+    // Exclude declarations explicitly rather than suppressing all self-targets.
+    const candidates = findMatlabCallCandidates(document.getText(), startOffset, endOffset)
+      .filter((candidate) => !declarationOffsets.has(candidate.nameOffset));
+    const boundSelf = matlabBoundNames(document.getText(symbol.range)).has(plainName(symbol));
     const calls = new Map<string, LocatedCall>();
     for (const candidate of candidates.slice(0, 500)) {
       if (token.isCancellationRequested) throw new vscode.CancellationError();
@@ -407,20 +421,26 @@ export class SymbolAnalyzer {
       for (const definition of definitions) {
         if (!options.includeExternal && !vscode.workspace.getWorkspaceFolder(definition.uri)) continue;
         const target = await this.containingFunction(definition.uri, definition.range.start, token);
-        if (!target || symbolId(target) === symbolId(symbol)) continue;
-        const id = symbolId(target);
-        if (!calls.has(id)) calls.set(id, { symbol: target, location: new vscode.Location(document.uri, new vscode.Range(position, position.translate(0, candidate.name.length))) });
+        if (!target) continue;
+        const recursive = sameFunction(target, symbol);
+        // A Definition inside a parameter/array assignment is not a definition
+        // of the enclosing function merely because it has the same container.
+        if (recursive && (!definition.range.contains(symbol.selectionRange.start) || handleCandidate(document.getText(), candidate))) continue;
+        const related = recursive ? symbol : target, id = symbolId(related);
+        if (!calls.has(id)) calls.set(id, { symbol: related, location: new vscode.Location(document.uri, new vscode.Range(position, position.translate(0, candidate.name.length))) });
         resolved = true;
         break;
       }
       if (!resolved) {
         const fallbackTargets = await this.workspaceTargets(candidate.name, token);
         for (const target of fallbackTargets) {
-          if (symbolId(target) === symbolId(symbol)) continue;
-          const id = symbolId(target);
+          const recursive = sameFunction(target, symbol);
+          if (recursive && (boundSelf || handleCandidate(document.getText(), candidate)
+            || !resolveFunctionReference(candidate.name, symbol.uri.fsPath, [{ name: plainName(symbol), path: symbol.uri.fsPath }]).target)) continue;
+          const related = recursive ? symbol : target, id = symbolId(related);
           if (!calls.has(id)) {
             calls.set(id, {
-              symbol: target,
+              symbol: related,
               location: new vscode.Location(document.uri, new vscode.Range(position, position.translate(0, candidate.name.length)))
             });
           }
@@ -441,16 +461,45 @@ export class SymbolAnalyzer {
       if (token.isCancellationRequested) throw new vscode.CancellationError();
       if (!options.includeExternal && !vscode.workspace.getWorkspaceFolder(reference.uri)) continue;
       const caller = await this.containingFunction(reference.uri, reference.range.start, token);
-      if (!caller || symbolId(caller) === symbolId(symbol)) continue;
-      const id = symbolId(caller);
-      if (!calls.has(id)) calls.set(id, { symbol: caller, location: reference });
+      if (!caller) continue;
+      const recursive = sameFunction(caller, symbol);
+      if (recursive && (await this.isDeclarationLocation(reference, token) || !await this.selfInvocation(symbol, reference, token, false))) continue;
+      const related = recursive ? symbol : caller, id = symbolId(related);
+      if (!calls.has(id)) calls.set(id, { symbol: related, location: reference });
     }
     for (const fallback of await this.workspaceIncomingCalls(symbol.name, token)) {
-      if (symbolId(fallback.symbol) === symbolId(symbol)) continue;
-      const id = symbolId(fallback.symbol);
-      if (!calls.has(id)) calls.set(id, fallback);
+      const recursive = sameFunction(fallback.symbol, symbol);
+      if (recursive && (await this.isDeclarationLocation(fallback.location, token)
+        || !await this.selfInvocation(symbol, fallback.location, token, true))) continue;
+      const related = recursive ? symbol : fallback.symbol, id = symbolId(related);
+      if (!calls.has(id)) calls.set(id, { symbol: related, location: fallback.location });
     }
     return [...calls.values()];
+  }
+
+  /** Providers may return the declaration word, its entire line or a (0,0)
+   * placeholder. None is a call site. Scope this check to same-function incoming
+   * references; ordinary caller discovery retains its existing behavior. */
+  private async isDeclarationLocation(location: vscode.Location, token: vscode.CancellationToken): Promise<boolean> {
+    const document = await this.document(location.uri, token);
+    return findMatlabDeclarations(document.getText()).some((item) => {
+      const name = document.positionAt(item.nameOffset), start = document.positionAt(item.startOffset);
+      return location.range.contains(name) || location.range.start.isEqual(start)
+        || (location.range.start.line === name.line && location.range.start.character >= name.character
+          && location.range.start.character < name.character + item.name.length);
+    });
+  }
+
+  /** Incoming References can include handles as well as calls. Syntax-only
+   * recursion also needs an unshadowed name and proven lexical/package identity;
+   * an arbitrary receiver.foo must not become foo -> foo by basename alone. */
+  private async selfInvocation(symbol: ResolvedSymbol, location: vscode.Location, token: vscode.CancellationToken, syntaxOnly: boolean): Promise<boolean> {
+    const document = await this.document(location.uri, token), source = document.getText();
+    const candidate = findMatlabCallCandidates(source).find((item) => location.range.contains(document.positionAt(item.nameOffset)));
+    if (!candidate || handleCandidate(source, candidate)) return false;
+    if (!syntaxOnly) return true; // Reference provider resolved the function identity.
+    return !matlabBoundNames(document.getText(symbol.range)).has(plainName(symbol))
+      && !!resolveFunctionReference(candidate.name, symbol.uri.fsPath, [{ name: plainName(symbol), path: symbol.uri.fsPath }]).target;
   }
 
   private async definitions(

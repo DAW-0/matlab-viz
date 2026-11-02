@@ -391,6 +391,53 @@ seven restoration phases remain independent regression requirements. Keep
 generated profiles/logs/screenshots/models out of Git and the VSIX. See the
 [grouping guide](GROUPING.md) for expected user behavior and boundaries.
 
+## Cycle explorer validation (0.3.14)
+
+The current Node suite has 137 tests: 136 deterministic tests and the opt-in
+real-MATLAB runner. Six new engine tests compare SCC membership to independent
+reachability on 200 generated directed graphs, check self/parallel/bridge cases,
+and handle a 50,000-node chain/ring without recursion. Nine webview tests cover
+cycle/group projection distinctions, filtering/isolation, SVG, pagination,
+navigation, graph-type semantics, saved state, failure retention and recomputation.
+Five call-discovery regressions additionally cover outgoing/incoming/both self
+edges, declaration-only provider shapes, shadowed arrays, authoritative function
+identity, handles and qualified/object receiver boundaries.
+
+The helper is shipped as `media/graphCycles.js`, loaded with the same CSP nonce
+as geometry/grouping. Tests execute the actual helper and renderer, not copied
+implementations. Algorithm comments distinguish SCCs from simple-cycle counts,
+explain stable identities and retain real directed witness evidence.
+
+```powershell
+$env:MATLAB_VIZ_TEST_EXECUTABLE = 'C:\Program Files\MATLAB\R2026b\bin\matlab.exe'
+& .\test\host\runRestoration.ps1 `
+  -FixturesRoot 'E:\_Git\matlab-viz\.tools\validation\0.3.5\host-fixtures' `
+  -ArtifactsRoot 'E:\_Git\matlab-viz\.tools\validation\0.3.14\native-cycles-new' `
+  -Phases @('cycles', 'restore-cycles', 'reload-cycles', 'cycles-refresh')
+```
+
+Run `cycles` first in a fresh profile. It seeds a controlled cache whose loop
+edges are synthetic UI input, not a claim that the MATLAB fixture really
+recurses. Native tests use real controls/save dialogs/all five formats and open
+an owned source member, then restart/Reload Window. The last phase provokes a
+real MATLAB file-limit error and then refreshes the real acyclic four-file
+fixture, verifying stale cycle selection clears. Normal editor settings and WEST
+files are untouched. Separate grouping and visual/clarity/seven restoration
+phases remain regression requirements; generated profiles/logs stay ignored.
+See the [cycle guide](CYCLES.md) for behavior and limits.
+
+The separate `cycles-calls` phase opens only the owned `test/fixtures/cycles`
+workspace and runs actual Show Callees commands for mutual and direct recursion.
+The functions are read/analyzed, never evaluated:
+
+```powershell
+& .\test\host\runRestoration.ps1 `
+  -FixturesRoot 'E:\_Git\matlab-viz\.tools\validation\0.3.5\host-fixtures' `
+  -WorkspaceRoot 'E:\_Git\matlab-viz\test\fixtures\cycles' `
+  -ArtifactsRoot 'E:\_Git\matlab-viz\.tools\validation\0.3.14\native-cycle-calls-new' `
+  -Phases @('cycles-calls')
+```
+
 ## Release checklist
 
 1. Choose and add a distribution license.

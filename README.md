@@ -2,7 +2,7 @@
 
 MATLAB Viz is a MATLAB-first dependency explorer for VS Code and VSCodium. It runs MATLAB's documented dependency-analysis APIs locally, converts the results into a portable graph model, and presents that model as an interactive dependency and impact graph.
 
-> **Development status:** `0.3.13` is a working development build. MATLAB Project and folder backends are exercised by automated MATLAB tests and repository acceptance tests. Function call-hierarchy and symbol-reference graphs use the installed MATLAB language service and a conservative MATLAB syntax fallback. See the [acceptance findings](docs/ACCEPTANCE_TESTS.md) for known limitations and pending repairs.
+> **Development status:** `0.3.14` is a working development build. MATLAB Project and folder backends are exercised by automated MATLAB tests and repository acceptance tests. Function call-hierarchy and symbol-reference graphs use the installed MATLAB language service and a conservative MATLAB syntax fallback. See the [acceptance findings](docs/ACCEPTANCE_TESTS.md) for known limitations and pending repairs.
 
 ## Why MATLAB Viz?
 
@@ -20,6 +20,7 @@ The Project backend is the programmatic form of MATLAB's built-in Dependency Ana
 - Display MATLAB, Live Script, App Designer, protected-code, and Simulink files.
 - Interactive SVG graph with pan, zoom, fit, node dragging, and four layouts.
 - Folder/MATLAB-package grouping with collapsible summary nodes, aggregated directed links, member inspection, and persisted view state.
+- Cycle explorer with original-graph cyclic components, directed-loop examples, self-link detection, highlighting/isolation, source navigation and saved view state.
 - Double-click a node to open it in the editor.
 - Search by file name, relative path, or full path.
 - Trace dependencies or impact from a selected file to a configurable depth.
@@ -63,7 +64,7 @@ To create an installable package:
 
 ```powershell
 npm run package
-codium --install-extension matlab-viz-0.3.13.vsix
+codium --install-extension matlab-viz-0.3.14.vsix
 ```
 
 ## Grouping large graphs
@@ -82,6 +83,21 @@ through groups. SVG/PNG use the current grouped/filtered view; JSON/DOT/CSV
 always export the complete ungrouped analysis. No MATLAB rerun is needed to
 group an existing graph. See the [grouping guide](docs/GROUPING.md) for package
 ownership, persistence, counts, exports, and first-version limits.
+
+## Cycle explorer
+
+Click **Cycles (N)** to inspect cyclic components in the loaded result. Choose
+**Highlight cycles** or **Isolate cycles** and use the component selector for
+one component or all of them. Each component includes member navigation,
+internal-link counts and one actual directed-loop example. A component can
+contain several loops: N is not the number of simple cycles.
+
+Detection always uses original analyzed nodes/links, never collapsed group
+arrows. Isolation reveals original members, excludes links between components,
+and respects visibility filters; the panel reports partial visibility. SVG/PNG
+export the current cycle view; JSON/DOT/CSV remain the complete original model.
+No MATLAB rerun is needed. See the [cycle guide](docs/CYCLES.md) for scope,
+recursion/reference semantics, restoration and export limits.
 
 ## Standalone MATLAB API
 

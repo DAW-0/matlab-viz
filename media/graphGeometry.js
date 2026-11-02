@@ -204,18 +204,20 @@
   const xml = (value) => String(value).replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&apos;" })[character]);
   function svgDocument(data, positions, sizes, options) {
     const box = options.scope === "viewport" ? { minX: 0, minY: 0, width: options.width, height: options.height } : bounds(data, positions, sizes);
-    const color = { background: "#ffffff", text: "#222222", node: "#1976d2", edge: "#6b7280", selected: "#c05a00", external: "#a17700", missing: "#d32f2f", ...options.colors };
+    const color = { background: "#ffffff", text: "#222222", node: "#1976d2", edge: "#6b7280", selected: "#c05a00", cyclic: "#b86dda", external: "#a17700", missing: "#d32f2f", ...options.colors };
     const parts = [`<svg xmlns="http://www.w3.org/2000/svg" xml:space="preserve" width="${box.width}" height="${box.height}" viewBox="${box.minX} ${box.minY} ${box.width} ${box.height}" role="img">`,
-      `<title>MATLAB Viz dependency graph</title><desc>${data.nodes.length} nodes, ${data.edges.length} edges; ${xml(options.scope || "graph")} export. Search highlights do not exclude nodes.${data.original ? ` Grouped view of ${data.original.nodes.length} original nodes and ${data.original.edges.length} original links; ${data.internalEdges} links are internal to collapsed groups. Counts are graph links, not source occurrences. JSON/DOT/CSV retain the complete ungrouped graph.` : ""}</desc>`,
+      `<title>MATLAB Viz dependency graph</title><desc>${data.nodes.length} nodes, ${data.edges.length} edges; ${xml(options.scope || "graph")} export. Search highlights do not exclude nodes.${data.original ? ` Grouped view of ${data.original.nodes.length} original nodes and ${data.original.edges.length} original links; ${data.internalEdges} links are internal to collapsed groups. Counts are graph links, not source occurrences. JSON/DOT/CSV retain the complete ungrouped graph.` : ""} ${xml(options.cycleDescription || "")}</desc>`,
       `<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M 0 0 L 10 5 L 0 10 z" fill="${xml(color.edge)}"/></marker><marker id="arrow-selected" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M 0 0 L 10 5 L 0 10 z" fill="${xml(color.selected)}"/></marker></defs>`,
       `<rect x="${box.minX}" y="${box.minY}" width="${box.width}" height="${box.height}" fill="${xml(color.background)}"/>`];
+    parts.push(`<defs><marker id="arrow-cycle" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M 0 0 L 10 5 L 0 10 z" fill="${xml(color.cyclic)}"/></marker></defs>`);
     const view = options.transform;
     parts.push(options.scope === "viewport" ? `<g transform="translate(${view.x},${view.y}) scale(${view.k})">` : "<g>");
     for (const edge of data.edges) {
       const value = edgeGeometry(edge, positions, sizes); if (!value) continue;
       const highlight = edge.source === options.selectedId || edge.target === options.selectedId || options.selectedIds?.has(edge.source) || options.selectedIds?.has(edge.target);
       const shape = value.d ? `<path d="${value.d}"` : `<line x1="${value.x1}" y1="${value.y1}" x2="${value.x2}" y2="${value.y2}"`;
-      parts.push(`${shape} data-edge-id="${xml(edge.id)}" class="edge" fill="none" stroke="${xml(highlight ? color.selected : color.edge)}" stroke-width="${highlight ? 2.4 : 1.2}" marker-end="url(#${highlight ? "arrow-selected" : "arrow"})"/>`);
+      const cyclic = options.cyclicEdgeCounts?.get(edge.id) || 0;
+      parts.push(`${shape} data-edge-id="${xml(edge.id)}" class="edge${cyclic ? " cyclic" : ""}"${cyclic ? ` data-cyclic-links="${cyclic}"` : ""} fill="none" stroke="${xml(highlight ? color.selected : cyclic ? color.cyclic : color.edge)}" stroke-width="${highlight || cyclic ? 2.4 : 1.2}" marker-end="url(#${highlight ? "arrow-selected" : cyclic ? "arrow-cycle" : "arrow"})"/>`);
       if (edge.count) {
         const point = linkCountPoint(edge, positions, sizes);
         parts.push(`<text class="link-count" x="${point.x}" y="${point.y}" text-anchor="middle" fill="${xml(color.text)}" font-family="${xml(options.fontFamily || "Arial, sans-serif")}" font-size="12" font-weight="bold" paint-order="stroke" stroke="${xml(color.background)}" stroke-width="4" stroke-linejoin="round">${edge.count}</text>`);
@@ -226,8 +228,9 @@
       const point = positions.get(node.id), size = sizes.get(node.id);
       const selected = node.id === options.selectedId || options.selectedIds?.has(node.id);
       const matches = !query || `${node.label} ${node.relativePath} ${node.path} ${node.searchText || ""}`.toLowerCase().includes(query);
-      const stroke = selected ? color.selected : node.missing ? color.missing : node.external ? color.external : color.node;
-      parts.push(`<g class="node" data-node-id="${xml(node.id)}" transform="translate(${point.x},${point.y})"${matches ? "" : ' opacity="0.15"'}><title>${xml(node.relativePath || node.label)}</title><rect x="${-size.width / 2}" y="${-size.height / 2}" width="${size.width}" height="${size.height}" rx="5" fill="${xml(color.background)}" stroke="${xml(stroke)}" stroke-width="${selected || node.missing ? 2.5 : 1.5}"${node.external ? ' stroke-dasharray="5 3"' : ""}/><text text-anchor="middle" fill="${xml(color.text)}" font-family="${xml(options.fontFamily || "Arial, sans-serif")}" font-size="12">`);
+      const cyclic = options.cyclicNodeIds?.has(node.id);
+      const stroke = selected ? color.selected : node.missing ? color.missing : cyclic ? color.cyclic : node.external ? color.external : color.node;
+      parts.push(`<g class="node${cyclic ? " cyclic" : ""}" data-node-id="${xml(node.id)}" transform="translate(${point.x},${point.y})"${matches ? "" : ' opacity="0.15"'}><title>${xml(node.relativePath || node.label)}</title><rect x="${-size.width / 2}" y="${-size.height / 2}" width="${size.width}" height="${size.height}" rx="5" fill="${xml(color.background)}" stroke="${xml(stroke)}" stroke-width="${selected || node.missing || cyclic ? 2.5 : 1.5}"${node.external ? ' stroke-dasharray="5 3"' : ""}/><text text-anchor="middle" fill="${xml(color.text)}" font-family="${xml(options.fontFamily || "Arial, sans-serif")}" font-size="12">`);
       size.lines.forEach((line, index) => parts.push(`<tspan x="0" y="${(index - (size.lines.length - 1) / 2) * 16 + 4}">${xml(line)}</tspan>`));
       parts.push("</text></g>");
     }

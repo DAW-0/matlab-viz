@@ -76,6 +76,24 @@ not new graph-schema fields. Older saved views default to no grouping. Same-root
 Refresh preserves grouping/expansion; another root/type resets them. See the
 [grouping guide](GROUPING.md) for exact membership/count/persistence boundaries.
 
+## Webview cycle analysis
+
+`media/graphCycles.js` performs original-graph cyclic SCC discovery independently
+of geometry/grouping. Iterative forward/reverse traversals avoid call-stack
+limits; each component retains original members/internal edges and a directed
+witness, not an enumeration of simple cycles. Component identity uses its
+smallest original node ID, unique across disjoint components. Detection is cached
+per analyzed result, before all view filters. The renderer maps original cycle
+membership onto displayed group nodes/edges; it never analyzes aggregate arrows.
+
+Cycle mode/selection/member page are additive version-1 webview preferences.
+Isolation filters original members/internal edges, clears tracing, and expands
+their displayed owners. Visibility settings remain respected. Same-result
+restoration retains the view; a new result recomputes/reset selection rather than
+silently reusing a changed SCC. SVG/PNG receive projected cycle markings;
+portable host exporters still receive only the original graph. See
+[cycle semantics](CYCLES.md) for partial visibility and reference/recursion limits.
+
 ## Webview security
 
 The webview has a restrictive content security policy. It loads only extension-owned resources and uses a per-view nonce. User-controlled labels and paths are assigned through `textContent`; they are never inserted as HTML.

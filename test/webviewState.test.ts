@@ -82,6 +82,7 @@ function webview(initialState?: unknown) {
   const realm = vm.createContext(context);
   vm.runInContext(readFileSync(path.resolve(__dirname, "../../media/graphGeometry.js"), "utf8"), realm);
   vm.runInContext(readFileSync(path.resolve(__dirname, "../../media/graphGrouping.js"), "utf8"), realm);
+  vm.runInContext(readFileSync(path.resolve(__dirname, "../../media/graphCycles.js"), "utf8"), realm);
   vm.runInContext(readFileSync(path.resolve(__dirname, "../../media/graph.js"), "utf8"), realm);
   function flush() { for (let count = 0; frames.length && count < 20; count++) frames.shift()!(); assert.equal(frames.length, 0); }
   function send(value: unknown, finish = true) { events.get("message")?.({ data: value }); if (finish) flush(); }
@@ -120,6 +121,124 @@ function groupedFixture() {
   });
   return value;
 }
+
+function cyclicFixture() {
+  const value = groupedFixture();
+  value.nodes.push(...["d", "e"].map((id) => ({ ...value.nodes[0], id, label: `${id}.m`, relativePath: `other/${id}.m`, path: `/fixture/other/${id}.m` })));
+  value.edges = [["a", "b"], ["b", "c"], ["c", "a"], ["d", "d"], ["c", "d"], ["b", "isolated"]]
+    .map(([source, target]) => ({ id: `${source}${target}`, source, target, kind: "dependency" }));
+  return value;
+}
+
+test("cycle browser reports components rather than simple cycles and highlighting preserves graph data/viewport", () => {
+  const view = webview(), value = cyclicFixture(), saved = JSON.stringify(value); view.load(value);
+  assert.equal(view.get("cycles").textContent, "Cycles (2)");
+  assert.equal(view.get("cycle-mode").disabled, false); assert.equal(view.get("cycle-mode").value, "off");
+  view.get("graph").trigger("wheel", { deltaY: -100 }); view.flush(); const transform = view.state().transform;
+  view.get("cycles").trigger("click"); assert.match(view.get("details").textContent, /component can contain several loops/);
+  view.get("cycle-mode").value = "highlight"; view.get("cycle-mode").trigger("change"); view.flush();
+  assert.equal(view.nodes().length, 6);
+  assert.deepEqual(view.nodes().filter((node) => node.attributes.class!.includes("cyclic")).map((node) => node.attributes["data-node-id"]), ["a", "b", "c", "d"]);
+  assert.equal(view.get("graph").children[1]!.children.filter((node) => node.attributes["data-cyclic-links"]).length, 4);
+  assert.deepEqual(view.state().transform, transform); assert.equal(JSON.stringify(value), saved);
+});
+
+test("isolate one/all components retains internal original links but excludes bridges and tails", () => {
+  const view = webview(); view.load(cyclicFixture());
+  view.get("cycle-component").value = 'component:"a"'; view.get("cycle-component").trigger("change");
+  view.get("cycle-mode").value = "isolate"; view.get("cycle-mode").trigger("change"); view.flush();
+  assert.equal(view.nodes().length, 3); assert.match(view.get("summary").textContent, /3\/6 files.*3\/6 dependencies/);
+  assert.equal(view.get("direction").disabled, true); assert.equal(view.get("depth").disabled, true);
+  assert.match(view.get("depth-label").title, /Cycle isolation.*Highlight cycles/);
+  view.get("cycle-component").value = "all"; view.get("cycle-component").trigger("change"); view.flush();
+  assert.equal(view.nodes().length, 4); assert.match(view.get("summary").textContent, /4\/6 files.*4\/6 dependencies/);
+  view.get("cycle-mode").value = "off"; view.get("cycle-mode").trigger("change"); view.flush();
+  assert.equal(view.nodes().length, 6); assert.equal(view.get("direction").disabled, false);
+});
+
+test("cycle markings on grouped arrows count only actual cyclic originals and isolation reveals original members", () => {
+  const view = webview(); view.load(cyclicFixture());
+  view.get("grouping").value = "folder"; view.get("grouping").trigger("change");
+  view.get("cycle-mode").value = "highlight"; view.get("cycle-mode").trigger("change"); view.flush();
+  const partial = view.get("graph").children[1]!.children.find((node) => node.attributes["data-link-count"] === "2")!;
+  assert.equal(partial.attributes["data-cyclic-links"], "1");
+  view.get("cycle-component").value = 'component:"a"'; view.get("cycle-component").trigger("change");
+  view.get("cycle-mode").value = "isolate"; view.get("cycle-mode").trigger("change"); view.flush();
+  assert.deepEqual(view.nodes().map((node) => node.attributes["data-node-id"]), ["a", "b", "c"]);
+  view.get("grouping").value = "package"; view.get("grouping").trigger("change"); view.flush();
+  assert.equal(view.nodes().length, 3); assert.ok(!view.nodes().some((node) => node.attributes["data-group-id"]));
+});
+
+test("opposite grouped arrows do not invent cycles and the no-cycle view describes coverage limits", () => {
+  const view = webview(), value = groupedFixture(); value.edges = [{ id: "ac", source: "a", target: "c", kind: "dependency" }, { id: "ib", source: "isolated", target: "b", kind: "dependency" }];
+  view.load(value); view.get("grouping").value = "folder"; view.get("grouping").trigger("change"); view.flush();
+  assert.equal(view.get("cycles").textContent, "Cycles (0)"); assert.equal(view.get("cycle-mode").disabled, true);
+  view.get("cycles").trigger("click"); assert.match(view.get("details").textContent, /No directed cycles.*not proof/);
+  assert.equal(view.get("graph").children[1]!.children.filter((node) => node.attributes["data-edge-id"]).length, 2);
+});
+
+test("visibility filters report partial cycles without reclassifying the original graph", () => {
+  const view = webview(), value = cyclicFixture(); value.nodes[2].external = true; view.load(value);
+  view.get("cycle-component").value = 'component:"a"'; view.get("cycle-component").trigger("change");
+  view.get("cycle-mode").value = "isolate"; view.get("cycle-mode").trigger("change");
+  view.get("external").checked = false; view.get("external").trigger("change"); view.flush();
+  assert.equal(view.nodes().length, 2); assert.equal(view.get("cycles").textContent, "Cycles (2)");
+  assert.match(view.get("details").textContent, /2\/3 selected component members and 1\/3 internal links currently visible/);
+  assert.match(view.get("details").textContent, /Filters\/tracing may hide part of a loop/);
+});
+
+test("cycle selection/isolation/details/viewport restore with the same graph; failure retains them and new analysis resets them", () => {
+  const first = webview(), value = cyclicFixture(); first.load(value);
+  first.get("grouping").value = "folder"; first.get("grouping").trigger("change");
+  first.get("cycle-component").value = 'component:"a"'; first.get("cycle-component").trigger("change");
+  first.get("cycle-mode").value = "isolate"; first.get("cycle-mode").trigger("change");
+  first.get("graph").trigger("wheel", { deltaY: -100 }); first.flush();
+  const second = webview(first.state()); second.load(value); assert.deepEqual(second.state(), first.state());
+  second.send({ type: "analysisStatus", status: { kind: "failed", message: "test", occurredAt: "now" } });
+  assert.equal(second.state().controls.cycleMode, "isolate"); assert.equal(second.nodes().length, 3);
+  second.load({ ...value, metadata: { ...value.metadata, generatedAt: "new analysis" }, edges: [] });
+  assert.equal(second.get("cycle-mode").value, "off"); assert.equal(second.get("cycles").textContent, "Cycles (0)");
+  const malformed = first.state(); malformed.controls.cycleComponent = "absent";
+  const safe = webview(malformed); safe.load(value); assert.equal(safe.get("cycle-mode").value, "off");
+});
+
+test("cycle SVG exports the isolated vector view and markings while leaving original analysis unchanged", () => {
+  const view = webview(), value = cyclicFixture(), saved = JSON.stringify(value); view.load(value);
+  view.get("cycle-component").value = 'component:"a"'; view.get("cycle-component").trigger("change");
+  view.get("cycle-mode").value = "isolate"; view.get("cycle-mode").trigger("change"); view.flush();
+  view.send({ type: "requestExport", format: "svg", scope: "graph" });
+  const output = view.messages.find((message) => message.type === "saveVisual");
+  assert.equal(output.nodes, 3); assert.equal(output.edges, 3);
+  assert.equal((output.data.match(/class="node cyclic"/g) || []).length, 3);
+  assert.equal((output.data.match(/data-cyclic-links="1"/g) || []).length, 3);
+  assert.match(output.data, /Cycle view: isolate/); assert.doesNotMatch(output.data, /<image/);
+  assert.equal(JSON.stringify(value), saved);
+});
+
+test("cycle member pagination restores and source navigation sends exact readonly positions", () => {
+  const view = webview(), value = cyclicFixture();
+  value.nodes = Array.from({ length: 205 }, (_, i) => ({ ...value.nodes[0], id: `r${i}`, label: `r${i}`, relativePath: `r${i}.m`, path: `/fixture/r${i}.m`, line: i, character: 2 }));
+  value.edges = value.nodes.map((node: any, i: number) => ({ id: `e${i}`, source: node.id, target: value.nodes[(i + 1) % 205].id, kind: "dependency" }));
+  view.load(value); view.get("cycles").trigger("click");
+  assert.equal(view.get("details").children.filter((node) => node.textContent.startsWith("Open:")).length, 100);
+  view.get("details").children.find((node) => node.textContent === "Next 100 members")!.trigger("click"); view.flush();
+  assert.equal(view.state().cycleMemberPage, 1); assert.match(view.get("details").textContent, /Members 101–200 of 205/);
+  const restored = webview(view.state()); restored.load(value); assert.equal(restored.state().cycleMemberPage, 1);
+  restored.get("details").children.find((node) => node.textContent.startsWith("Open:"))!.trigger("click");
+  assert.equal(restored.messages.at(-1).type, "openFile"); assert.equal(restored.messages.at(-1).character, 2);
+  assert.equal(typeof restored.messages.at(-1).line, "number");
+});
+
+test("function self-links describe direct recursion while reference cycles do not claim runtime behavior", () => {
+  for (const type of ["call-hierarchy", "references"]) {
+    const view = webview(), value = cyclicFixture(); value.metadata.graphType = type; view.load(value);
+    view.get("cycle-component").value = 'component:"d"'; view.get("cycle-component").trigger("change");
+    view.get("cycle-mode").value = "isolate"; view.get("cycle-mode").trigger("change"); view.flush();
+    assert.equal(view.nodes().length, 1); assert.match(view.get("details").textContent, /1 symbols; 1 internal/);
+    if (type === "call-hierarchy") { assert.match(view.get("details").textContent, /\(direct recursion\)/); assert.equal(view.get("depth").disabled, false); }
+    else assert.doesNotMatch(view.get("details").textContent, /\(direct recursion\)/);
+  }
+});
 
 test("repeated Collapse all and Expand all are exact no-ops even for disconnected Force groups", () => {
   const view = webview(), value = groupedFixture(); value.edges = [];
