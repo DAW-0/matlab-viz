@@ -1,0 +1,112 @@
+name: Publish verified VSIX to Open VSX
+
+# No release/push trigger: publication always requires an explicit manual run.
+# This bootstrap workflow is deliberately bound to the reviewed 0.3.21 bytes.
+# Future versions require a reviewed edit, not arbitrary shell-bound inputs.
+on:
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: Verify only, or publish the verified 0.3.21 release
+        type: choice
+        options: [check, publish]
+        default: check
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: openvsx-daw-0-matlab-viz
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: github.repository == 'DAW-0/matlab-viz' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      VSIX_SHA256: 85a059996960ebd6d42a03f56d20ba35733b5f4ec09ec841a131913afdf2b9d9
+    steps:
+      # No checkout: neither repository source nor lifecycle scripts are needed
+      # to upload an existing archive. Pin the action, CLI and release checksum.
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: 26.13.0
+      - name: Download and verify the immutable GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/release"
+          gh release download v0.3.21 --repo DAW-0/matlab-viz \
+            --pattern matlab-viz-0.3.21.vsix --dir "$RUNNER_TEMP/release"
+          printf '%s  %s\n' "$VSIX_SHA256" "$RUNNER_TEMP/release/matlab-viz-0.3.21.vsix" | sha256sum --check
+      - name: Install the pinned publisher without lifecycle scripts
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --prefix "$RUNNER_TEMP/openvsx-cli" --ignore-scripts \
+            --no-audit --no-fund --package-lock=false ovsx@1.3.0
+          "$RUNNER_TEMP/openvsx-cli/node_modules/.bin/ovsx" --version
+      - name: Check registry namespace and existing version
+        id: registry
+        shell: bash
+        run: |
+          set -euo pipefail
+          for resource in namespace version; do
+            url='https://open-vsx.org/api/daw-0'
+            if [ "$resource" = version ]; then url="$url/matlab-viz/0.3.21"; fi
+            status=$(curl --silent --show-error --max-time 60 --output "$RUNNER_TEMP/$resource.json" --write-out '%{http_code}' "$url")
+            case "$status" in
+              200) echo "$resource=present" >> "$GITHUB_OUTPUT" ;;
+              404) echo "$resource=absent" >> "$GITHUB_OUTPUT" ;;
+              *) echo "Registry $resource check failed: HTTP $status" >&2; exit 1 ;;
+            esac
+          done
+      - name: Create namespace and publish the exact archive
+        if: inputs.operation == 'publish' && steps.registry.outputs.version == 'absent'
+        env:
+          # Only this step receives the PAT. Never echo it, pass it as a CLI
+          # argument, persist it, or use shell tracing. GitHub masks the secret.
+          OVSX_PAT: ${{ secrets.OVSX_PAT }}
+          NAMESPACE_STATE: ${{ steps.registry.outputs.namespace }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "$OVSX_PAT" ]; then echo 'Repository secret OVSX_PAT is required.' >&2; exit 1; fi
+          cli="$RUNNER_TEMP/openvsx-cli/node_modules/.bin/ovsx"
+          if [ "$NAMESPACE_STATE" = absent ]; then
+            "$cli" create-namespace daw-0 --registryUrl https://open-vsx.org
+          fi
+          "$cli" publish "$RUNNER_TEMP/release/matlab-viz-0.3.21.vsix" --registryUrl https://open-vsx.org
+      - name: Verify the published registry download
+        if: inputs.operation == 'publish'
+        shell: bash
+        run: |
+          # Scanning/indexing may not be instantaneous. Bounded public checks
+          # also make a retry safe: an existing version is verified, not replaced.
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import { createHash } from 'node:crypto';
+          const endpoint = 'https://open-vsx.org/api/daw-0/matlab-viz/0.3.21';
+          let metadata;
+          for (let attempt = 0; attempt < 30; attempt++) {
+            const response = await fetch(endpoint, { signal: AbortSignal.timeout(30000) });
+            if (response.ok) { metadata = await response.json(); break; }
+            if (![404, 429, 503].includes(response.status)) throw new Error(`Registry HTTP ${response.status}`);
+            await new Promise(resolve => setTimeout(resolve, 10000));
+          }
+          assert.ok(metadata, 'Published version did not become available');
+          assert.equal(metadata.namespace, 'daw-0');
+          assert.equal(metadata.name, 'matlab-viz');
+          assert.equal(metadata.version, '0.3.21');
+          const download = new URL(metadata.files.download);
+          assert.equal(download.origin, 'https://open-vsx.org');
+          const response = await fetch(download, { signal: AbortSignal.timeout(60000) });
+          assert.ok(response.ok, `Download HTTP ${response.status}`);
+          const digest = createHash('sha256').update(Buffer.from(await response.arrayBuffer())).digest('hex');
+          assert.equal(digest, process.env.VSIX_SHA256, 'Registry bytes differ from tested release');
+          console.log(`Verified daw-0.matlab-viz@0.3.21 SHA-256: ${digest}`);
+          NODE

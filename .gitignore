@@ -9,4 +9,6 @@ coverage/
 Thumbs.db
 *.log
 .vscode-test/
+# Local publisher notes may contain credentials. Never stage this file.
+/matlab-viz-publishing.txt
 
