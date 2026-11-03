@@ -1,13 +1,13 @@
 name: Publish verified VSIX to Open VSX
 
 # No release/push trigger: publication always requires an explicit manual run.
-# This bootstrap workflow is deliberately bound to the reviewed 0.3.22 bytes.
+# This bootstrap workflow is deliberately bound to the reviewed 0.3.23 bytes.
 # Future versions require a reviewed edit, not arbitrary shell-bound inputs.
 on:
   workflow_dispatch:
     inputs:
       operation:
-        description: Verify only, or publish the verified 0.3.22 release
+        description: Verify only, or publish the verified 0.3.23 release
         type: choice
         options: [check, publish]
         default: check
@@ -26,7 +26,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
-      VSIX_SHA256: 42c45b3ef68cf09183be7c906877cff90e3e958adaf362fcd7100cec927bedf2
+      VSIX_SHA256: f047c8b961b77d7d1f0ef68d553f591cfa3a334a70ffc22147b520271b43e456
     steps:
       # No checkout: neither repository source nor lifecycle scripts are needed
       # to upload an existing archive. Pin the action, CLI and release checksum.
@@ -40,9 +40,9 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/release"
-          gh release download v0.3.22 --repo DAW-0/matlab-viz \
-            --pattern matlab-viz-0.3.22.vsix --dir "$RUNNER_TEMP/release"
-          printf '%s  %s\n' "$VSIX_SHA256" "$RUNNER_TEMP/release/matlab-viz-0.3.22.vsix" | sha256sum --check
+          gh release download v0.3.23 --repo DAW-0/matlab-viz \
+            --pattern matlab-viz-0.3.23.vsix --dir "$RUNNER_TEMP/release"
+          printf '%s  %s\n' "$VSIX_SHA256" "$RUNNER_TEMP/release/matlab-viz-0.3.23.vsix" | sha256sum --check
       - name: Install the pinned publisher without lifecycle scripts
         shell: bash
         run: |
@@ -57,7 +57,7 @@ jobs:
           set -euo pipefail
           for resource in namespace version; do
             url='https://open-vsx.org/api/daw-0'
-            if [ "$resource" = version ]; then url="$url/matlab-viz/0.3.22"; fi
+            if [ "$resource" = version ]; then url="$url/matlab-viz/0.3.23"; fi
             status=$(curl --silent --show-error --max-time 60 --output "$RUNNER_TEMP/$resource.json" --write-out '%{http_code}' "$url")
             case "$status" in
               200) echo "$resource=present" >> "$GITHUB_OUTPUT" ;;
@@ -80,7 +80,7 @@ jobs:
           if [ "$NAMESPACE_STATE" = absent ]; then
             "$cli" create-namespace daw-0 --registryUrl https://open-vsx.org
           fi
-          "$cli" publish "$RUNNER_TEMP/release/matlab-viz-0.3.22.vsix" --registryUrl https://open-vsx.org
+          "$cli" publish "$RUNNER_TEMP/release/matlab-viz-0.3.23.vsix" --registryUrl https://open-vsx.org
       - name: Verify the published registry download
         if: inputs.operation == 'publish'
         shell: bash
@@ -90,7 +90,7 @@ jobs:
           node --input-type=module <<'NODE'
           import assert from 'node:assert/strict';
           import { createHash } from 'node:crypto';
-          const endpoint = 'https://open-vsx.org/api/daw-0/matlab-viz/0.3.22';
+          const endpoint = 'https://open-vsx.org/api/daw-0/matlab-viz/0.3.23';
           let metadata;
           for (let attempt = 0; attempt < 30; attempt++) {
             const response = await fetch(endpoint, { signal: AbortSignal.timeout(30000) });
@@ -101,12 +101,12 @@ jobs:
           assert.ok(metadata, 'Published version did not become available');
           assert.equal(metadata.namespace, 'daw-0');
           assert.equal(metadata.name, 'matlab-viz');
-          assert.equal(metadata.version, '0.3.22');
+          assert.equal(metadata.version, '0.3.23');
           const download = new URL(metadata.files.download);
           assert.equal(download.origin, 'https://open-vsx.org');
           const response = await fetch(download, { signal: AbortSignal.timeout(60000) });
           assert.ok(response.ok, `Download HTTP ${response.status}`);
           const digest = createHash('sha256').update(Buffer.from(await response.arrayBuffer())).digest('hex');
           assert.equal(digest, process.env.VSIX_SHA256, 'Registry bytes differ from tested release');
-          console.log(`Verified daw-0.matlab-viz@0.3.22 SHA-256: ${digest}`);
+          console.log(`Verified daw-0.matlab-viz@0.3.23 SHA-256: ${digest}`);
           NODE
