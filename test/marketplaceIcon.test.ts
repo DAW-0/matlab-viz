@@ -41,3 +41,28 @@ test("marketplace PNG is reproducible, square, legible-sized and wired to the ma
   assert.equal(small.height, 32);
   assert.ok(small.asPng().length > 100);
 });
+
+test("activity-bar glyph matches four nodes and three arrows using only theme-controlled monochrome", () => {
+  const source = readFileSync(path.join(root, "media/icon.svg"), "utf8");
+  assert.match(source, /viewBox="0 0 24 24"/);
+  assert.equal((source.match(/<circle\b/g) ?? []).length, 4);
+  assert.equal((source.match(/<path\b/g) ?? []).length, 3);
+  for (const [x, y] of [[5, 5], [19, 5], [5, 19], [19, 19]]) {
+    assert.ok(source.includes(`cx="${x}" cy="${y}"`));
+  }
+  assert.match(source, /cx="5" cy="5" r="2\.75" fill="currentColor"/);
+  assert.doesNotMatch(source, /<(?:rect|image|script|foreignObject|text)\b|(?:href|onload)=/i);
+  const colors = [...source.matchAll(/(?:fill|stroke)="([^"]+)"/g)].map(match => match[1]);
+  assert.ok(colors.length > 0 && colors.every(color => color === "none" || color === "currentColor"));
+  const { Resvg } = requireHere("@resvg/resvg-js");
+  // The editor supplies the tint. Substitute representative foregrounds only
+  // in test memory, never hard-code them into the shipped activity-bar SVG.
+  for (const color of ["#c5c5c5", "#424242"]) {
+    const rendered = new Resvg(source.replaceAll("currentColor", color), {
+      fitTo: { mode: "width", value: 24 }
+    }).render();
+    assert.equal(rendered.width, 24);
+    assert.equal(rendered.height, 24);
+    assert.ok(rendered.asPng().length > 100);
+  }
+});

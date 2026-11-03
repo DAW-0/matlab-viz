@@ -4,6 +4,15 @@ All notable changes to MATLAB Viz will be documented here.
 
 ## [Unreleased]
 
+## [0.3.23] - 2026-11-03
+
+- Match the activity-bar glyph to the four-node marketplace artwork: a filled
+  upper-left anchor, three outlined corner nodes, two incoming dependency arrows
+  and one outgoing impact arrow. Use only `currentColor` for editor-controlled
+  light/dark/active tints; keep the transparent 24-pixel mask separate from the
+  colored gallery tile. Add monochrome geometry and small-size render tests.
+- No graph, analysis, MATLAB-helper or colored marketplace-icon changes.
+
 ## [0.3.22] - 2026-11-03
 
 ### Marketplace identity

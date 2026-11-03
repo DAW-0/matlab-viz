@@ -12,6 +12,13 @@ separate arrowheads and generous spacing for small marketplace thumbnails.
 No remote images, embedded bitmap, fonts, script or SVG filters are needed.
 The extension's monochrome `media/icon.svg` remains separate for editor theming.
 
+As of 0.3.23, the activity-bar SVG matches the same four-node topology. Its
+24-pixel transparent canvas has a filled upper-left anchor, three outlined
+corner nodes and three directional arrows. It intentionally has no gallery
+background or fixed palette: every stroke/fill uses `currentColor`, allowing
+the editor's light/dark, active and hover states to control its appearance.
+Changing the gallery's PNG does not automatically update this separate glyph.
+
 The manifest references the 256-by-256 `media/marketplace-icon.png` and sets a
 matching gallery banner. Both vector source and PNG are shipped in the VSIX.
 Generate and verify with:

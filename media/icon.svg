@@ -1,3 +1,14 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
-  <path fill="none" stroke="currentColor" stroke-width="1.8" d="M5 5h5v5H5zM14 4h5v5h-5zM9 15h6v5H9zM10 7h4M7.5 10v3l4.5 2M16.5 9v4L12 15"/>
+  <!-- Match the gallery's four-node geometry, but use only currentColor so
+       the activity bar can apply its own foreground, hover and active tint.
+       The filled upper-left anchor remains distinct without relying on color. -->
+  <g fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M15.5 5h-6m1.8-1.8L9.5 5l1.8 1.8"/>
+    <path d="M5 15.5v-6m-1.8 1.8L5 9.5l1.8 1.8"/>
+    <path d="m8.5 8.5 7 7m-2.7 0h2.7v-2.7"/>
+    <circle cx="19" cy="5" r="2.5"/>
+    <circle cx="5" cy="19" r="2.5"/>
+    <circle cx="19" cy="19" r="2.5"/>
+  </g>
+  <circle cx="5" cy="5" r="2.75" fill="currentColor"/>
 </svg>
