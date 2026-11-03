@@ -2,7 +2,7 @@
 
 Report vulnerabilities through [GitHub private vulnerability reporting](https://github.com/DAW-0/matlab-viz/security/advisories/new), not a public issue. Use the repository's **Security → Advisories → Report a vulnerability** form. Include affected versions, a minimal non-confidential reproduction and impact; do not post credentials or proprietary source/model data.
 
-The maintainer confirmed private reporting is enabled on 2 November 2026. While the repository remains private, non-collaborators may see a 404 instead of its reporting form. Before any public release, verify the form is accessible to an external signed-in reporter after the intended visibility change. A private-repository API 404 is not treated as independent verification of that public form. This release does not change repository visibility or publish anything.
+The repository became public with the maintainer's permission on 3 November 2026. GitHub's reporting-status API then reported private reporting disabled; it was enabled and the API now confirms `enabled: true`. Reporting requires signing in to GitHub. The API check is not a claim that an independent external account submitted a report. If you cannot access the form, check that you are signed in; never post vulnerability details or proprietary data in a public issue.
 
 Only the current development release and the integration environment in [SUPPORT.md](SUPPORT.md) are actively validated. Older builds have no maintenance guarantee. Updates are coordinated through the private advisory; no response-time SLA is promised.
 

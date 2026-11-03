@@ -1,7 +1,9 @@
 # Support and tested environments
 
-MATLAB Viz 0.3.21 is a development preview. Public registry publication remains
-on hold; installing a local VSIX does not publish the extension.
+MATLAB Viz 0.3.21 is a public preview available as a verified
+[GitHub VSIX download](https://github.com/DAW-0/matlab-viz/releases/tag/v0.3.21).
+Open VSX publication is authorized but publisher-account setup remains pending;
+the GitHub release alone does not create a registry/editor-search listing.
 
 ## Validated integration environment
 
@@ -34,7 +36,7 @@ references, not complete library/callback/dictionary relationships.
 ## Reporting a normal problem
 
 Use [GitHub Issues](https://github.com/DAW-0/matlab-viz/issues) for non-security
-bugs. During private development, repository access is limited to collaborators.
+bugs. The repository is public as of 3 November 2026.
 Include the extension/editor/MATLAB versions, OS, analysis backend, steps and a
 small shareable fixture. Remove confidential source, absolute paths, usernames,
 tokens and proprietary model names from logs, graph exports and baselines.

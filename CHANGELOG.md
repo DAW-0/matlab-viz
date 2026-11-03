@@ -4,6 +4,13 @@ All notable changes to MATLAB Viz will be documented here.
 
 ## [Unreleased]
 
+- Publish the existing verified 0.3.21 public-preview source/tag and GitHub VSIX,
+  enable/verify GitHub private vulnerability reporting, and document the pending
+  Open VSX publisher setup. No runtime rebuild or tag replacement.
+- Add installed-VSIX acceptance mode and record 29 passing native phases across
+  11 private profiles, plus both real MATLAB-process tests. Current source CI
+  passes on Windows/Linux with Node 22 and 26.13.0; integration claims stay narrow.
+
 ## [0.3.21] - 2026-11-02
 
 ### Release preparation

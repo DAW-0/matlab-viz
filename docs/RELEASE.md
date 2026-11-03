@@ -1,8 +1,22 @@
 # Local release procedure and public-release gates
 
-Version 0.3.21 is an MIT-licensed development preview. Publication is on hold.
-This procedure creates a local source commit/tag and VSIX; it never changes
-GitHub visibility, pushes refs, creates a GitHub release, or uploads to a registry.
+Version 0.3.21 is an MIT-licensed public preview. On 3 November 2026 the maintainer
+authorized public GitHub visibility, source/tag pushes, a GitHub release and
+Open VSX publication. The repository and immutable `v0.3.21` tag are public;
+the [GitHub release](https://github.com/DAW-0/matlab-viz/releases/tag/v0.3.21)
+provides the tested VSIX. A downloaded release asset matches SHA-256
+`85a059996960ebd6d42a03f56d20ba35733b5f4ec09ec841a131913afdf2b9d9`.
+
+Open VSX is **not yet published**: account linking, agreement acceptance and
+publisher credentials/namespace setup remain required. Microsoft Marketplace
+publication has not been authorized as part of this Open VSX-first step.
+Private vulnerability reporting is enabled and confirmed by the GitHub API.
+The release source's four Windows/Linux Node CI jobs passed, including audit,
+tests and repeated-package byte equality; those are not Linux MATLAB/editor tests.
+
+The procedure below packages locally only. Actual publication is a separate
+explicit action. The tagged source/VSIX retain their preparation-time hold
+wording; these current notes supersede it without moving tags or rebuilding bytes.
 
 ## Supported/tested scope
 
@@ -91,24 +105,23 @@ codium --install-extension ".tools/releases/v$version/matlab-viz-$version.vsix" 
 Reload the user editor explicitly; release tooling must not reload or relocate
 the user's graph window. Verify the installed version and runtime/renderer hashes.
 
-## Remaining public-publication gates — explicit permission required
+## Publication gates and current status
 
 1. Review the source and documentation for organizational/proprietary data and
    confirm permission to distribute any contributed or third-party material.
-2. Decide when to push the reviewed source/tag. Relative packaged links are
-   pinned to that tag, so they are not publicly accessible while the source is
-   private/unpushed. User guides are also included in the VSIX for offline use.
-3. The maintainer confirmed GitHub private vulnerability reporting is enabled.
-   Verify an external signed-in reporter can access the private form once public;
-   the API currently returns 404 while this repository is private. Do not change
-   visibility just to perform this check. See [SECURITY.md](../SECURITY.md).
+2. The reviewed source/tag and immutable VSIX are now public on GitHub with
+   explicit permission. Tag-pinned package links resolve to the release source;
+   user guides are also included in the VSIX for offline use.
+3. GitHub private vulnerability reporting is enabled and confirmed by the public
+   repository's authenticated status API. This is not an independent external
+   account submission test. See [SECURITY.md](../SECURITY.md).
 4. Confirm publisher ownership/authentication separately for the Visual Studio
    Marketplace and Open VSX. Open VSX requires its namespace and Publisher
    Agreement. Do not sign an agreement or create/use publication tokens silently.
-5. Authorize registry upload and any GitHub release explicitly. Then publish the
-   verified immutable VSIX, not an unreviewed rebuild. Until that authorization,
-   all actions remain local and no release/publisher account changes are made.
+5. GitHub release and Open VSX upload are authorized. Publish the verified
+   immutable VSIX, not an unreviewed rebuild, once the Open VSX prerequisites
+   are complete. Do not claim an editor-search listing until its registry API
+   confirms the extension/version. Microsoft Marketplace remains separate.
 
-CI is configured for source/lint/unit/package checks on Windows/Linux Node jobs;
-it has no publication step and does not establish MATLAB/editor integration
-support. This local preparation does not push refs or trigger a new remote CI run.
+CI's four Windows/Linux Node jobs passed on the published release commit. They
+have no publication step and do not establish MATLAB/editor integration support.

@@ -9,7 +9,14 @@ skipped) and ten native VSCodium comparison/impact/entry-report phases. See
 [0.3.21 validation](VALIDATION_0.3.21.md), [support scope](../SUPPORT.md) and
 [release gates](RELEASE.md). Historical checkout counts and older repair batches
 below are retained as evidence, not current release-wide expected counts or
-broader compatibility claims. Public publishing remains on hold.
+broader compatibility claims. The historical preparation-time publication hold
+was lifted on 3 November 2026 for GitHub and Open VSX; see current
+[publication status](RELEASE.md) for the public GitHub release and pending registry setup.
+
+Packaged-install follow-up on 3 November 2026 passed 29 native phases across
+11 isolated profiles, all 209 deterministic tests and both opt-in MATLAB-process
+tests. See [installed VSIX acceptance](VALIDATION_0.3.21_INSTALLED.md) for exact
+artifact identity, test-harness corrections, evidence locations and limitations.
 
 ## Scope
 

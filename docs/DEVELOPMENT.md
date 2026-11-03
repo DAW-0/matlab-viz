@@ -592,9 +592,42 @@ to remain stable before Enter. Failed and successful artifacts remain local.
 
 ## Release checklist
 
+### Test the installed VSIX, not a development build
+
+Pass `-PackagedVsix` to `test/host/runRestoration.ps1` to install an existing
+release artifact into a suite-private extensions directory and fresh user-data
+profile. Only the test driver is loaded as a development extension; MATLAB Viz
+is loaded from the installed package. Each phase checks that actual load path,
+activation, all contributed commands/settings and required bundled files. A
+missing installed-contract result fails the suite even if the UI tests passed.
+This does not rebuild the VSIX, update the normal editor profile, or publish it.
+
+```powershell
+& .\test\host\runRestoration.ps1 `
+  -FixturesRoot 'E:\_Git\matlab-viz\.tools\validation\0.3.5\host-fixtures' `
+  -WorkspaceRoot 'E:\_Git\matlab-viz\test\fixtures\entryPoint' `
+  -ArtifactsRoot 'E:\_Git\matlab-viz\.tools\validation\installed-comparison-new' `
+  -PackagedVsix 'E:\_Git\matlab-viz\.tools\releases\v0.3.21\matlab-viz-0.3.21.vsix' `
+  -Phases @('prepare-comparison', 'compare-analyses', 'restore-comparison', 'reload-comparison')
+```
+
+Use independent artifacts directories for comparison, report, impact, grouping,
+cycle, function and visual suites: their persisted fixtures are not interchangeable.
+For phases that run MATLAB on controlled fixtures, also pass `-MatlabExecutable`.
+Run `cycles-calls` independently with `-WorkspaceRoot` set to
+`test/fixtures/cycles`; the ordinary four-file MATLAB fixture lacks those sources.
+For `visual` and saved-repository checks, pass `-GraphFile` explicitly. Packaged
+grouping tests pass their saved large-graph fixture from the test checkout, never
+from the installed extension (private validation graphs are not shipped).
+The runner preserves the caller's environment and retains install/editor logs,
+JSON results and exported artifacts. Test workspace trust is disabled to avoid
+an interactive prompt; these phases do not validate trust-prompt UX or execution
+sandboxing. MATLAB fixture analysis is distinct from running WEST controllers.
+
 Use the current [local release procedure and publication gates](RELEASE.md).
 MIT is selected and included. A clean reviewed source commit/tag, locked clean
 build, package checks/hash verification and tested-platform claims are required.
 Native/editor/MATLAB evidence is distinct from portable unit/CI checks. Do not
 push, change visibility, create a GitHub release or upload a VSIX without explicit
-authorization; public publishing is still on hold.
+authorization. The maintainer authorized GitHub and Open VSX on 3 November 2026;
+see the current release guide for completed actions and remaining registry setup.
