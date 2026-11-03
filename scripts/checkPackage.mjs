@@ -36,6 +36,18 @@ for (const name of ["README.md", "SECURITY.md", "SUPPORT.md", "dist/extension.js
 const packaged = JSON.parse(files.get("extension/package.json").toString("utf8"));
 assert.equal(packaged.version, expected.version); assert.equal(packaged.license, "MIT");
 assert.equal(packaged.engines.vscode, expected.engines.vscode);
+// Marketplace art is part of the immutable archive, not an external URL.
+// Keep its binary signature/dimensions and vector source under package checks.
+if (expected.icon) {
+  assert.equal(packaged.icon, expected.icon);
+  const icon = files.get(`extension/${packaged.icon}`);
+  assert.ok(icon, "Marketplace icon is absent from VSIX");
+  assert.equal(icon.subarray(0, 8).toString("hex"), "89504e470d0a1a0a");
+  assert.equal(icon.readUInt32BE(16), 256);
+  assert.equal(icon.readUInt32BE(20), 256);
+  assert.ok(files.has("extension/media/marketplace-icon.svg"));
+  assert.equal(packaged.preview, true);
+}
 // VSCE normalizes an extensionless source LICENSE to LICENSE.txt in the VSIX.
 const license = [...files].find(([name]) => /^extension\/license(?:\.txt|\.md)?$/i.test(name));
 assert.ok(license, "MIT license is missing from the package");

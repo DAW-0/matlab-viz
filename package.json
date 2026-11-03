@@ -1,8 +1,11 @@
 {
   "name": "matlab-viz",
   "displayName": "MATLAB Viz",
+  "icon": "media/marketplace-icon.png",
+  "galleryBanner": { "color": "#0b1523", "theme": "dark" },
+  "preview": true,
   "description": "Interactive MATLAB and Simulink dependency graphs powered by MATLAB's native dependency analysis.",
-  "version": "0.3.21",
+  "version": "0.3.22",
   "publisher": "daw-0",
   "license": "MIT",
   "private": true,
@@ -19,8 +22,14 @@
     "node": "^22.13.0 || >=24"
   },
   "capabilities": {
-    "untrustedWorkspaces": { "supported": false, "description": "MATLAB Project analysis can run project-controlled startup/shutdown tasks. Trust the workspace before using MATLAB Viz." },
-    "virtualWorkspaces": { "supported": false, "description": "This development build is validated only with a local Windows filesystem and a local MATLAB installation." }
+    "untrustedWorkspaces": {
+      "supported": false,
+      "description": "MATLAB Project analysis can run project-controlled startup/shutdown tasks. Trust the workspace before using MATLAB Viz."
+    },
+    "virtualWorkspaces": {
+      "supported": false,
+      "description": "This development build is validated only with a local Windows filesystem and a local MATLAB installation."
+    }
   },
   "categories": [
     "Visualization",
@@ -195,7 +204,10 @@
         },
         "matlabViz.folder.additionalSearchRoots": {
           "type": "array",
-          "items": { "type": "string", "minLength": 1 },
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
           "default": [],
           "description": "Additional recursive MATLAB lookup roots for folder analysis. Relative paths are resolved against the containing workspace, or the analysis root outside a workspace. The selected root takes precedence; these roots do not add analyzed source files."
         },
@@ -279,6 +291,8 @@
     }
   },
   "scripts": {
+    "icon:build": "node scripts/buildIcon.mjs",
+    "icon:check": "node scripts/buildIcon.mjs --check",
     "build": "node esbuild.mjs",
     "watch": "node esbuild.mjs --watch",
     "check": "tsc --noEmit",
@@ -291,14 +305,15 @@
     "vscode:prepublish": "npm run check && npm run build"
   },
   "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "@resvg/resvg-js": "2.6.2",
     "@types/node": "^22.10.0",
     "@types/vscode": "1.95.0",
-    "@eslint/js": "10.0.1",
     "@vscode/vsce": "^4.1.0",
     "esbuild": "^0.28.2",
     "eslint": "10.14.0",
-    "typescript-eslint": "8.72.1",
-    "typescript": "^5.7.2"
+    "typescript": "^5.7.2",
+    "typescript-eslint": "8.72.1"
   },
   "overrides": {
     "@azure/msal-node": "^7.1.0",

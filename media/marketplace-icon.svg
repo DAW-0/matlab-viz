@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256" role="img" aria-labelledby="title description">
+  <title id="title">MATLAB Viz dependency and impact graph</title>
+  <desc id="description">Four corner nodes. Two blue dependency arrows converge on the highlighted upper-left node, and one green impact arrow leads from it to the lower-right node.</desc>
+  <!-- A self-contained tile stays legible against both marketplace themes.
+       No text, fonts, filters, external assets or MathWorks marks are used. -->
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#16283d"/>
+      <stop offset="1" stop-color="#0b1523"/>
+    </linearGradient>
+  </defs>
+  <rect x="4" y="4" width="248" height="248" rx="48" fill="url(#tile)"/>
+  <rect x="4.75" y="4.75" width="246.5" height="246.5" rx="47.25" fill="none" stroke="#31475f" stroke-width="1.5"/>
+  <!-- Hand-drawn arrowheads keep raster output predictable at 32px. Paths end
+       outside node outlines, so arrows neither cross labels nor hide in nodes. -->
+  <g fill="none" stroke="#64b5ff" stroke-width="10" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M164 64H108"/>
+    <path d="m122 50-14 14 14 14"/>
+    <path d="M64 164v-56"/>
+    <path d="m50 122 14-14 14 14"/>
+  </g>
+  <g fill="none" stroke="#93d58b" stroke-width="10" stroke-linecap="round" stroke-linejoin="round">
+    <path d="m96 96 63 63"/>
+    <path d="M139 159h20v-20"/>
+  </g>
+  <!-- Exactly four original nodes; the larger warm node is the inspection
+       anchor, blue nodes are sources, and green is the impact destination. -->
+  <circle cx="64" cy="64" r="26" fill="#ffcf70" stroke="#ffe8b5" stroke-width="4"/>
+  <circle cx="192" cy="64" r="22" fill="#173956" stroke="#80c4ff" stroke-width="6"/>
+  <circle cx="64" cy="192" r="22" fill="#173956" stroke="#80c4ff" stroke-width="6"/>
+  <circle cx="192" cy="192" r="22" fill="#203e35" stroke="#a4df9d" stroke-width="6"/>
+</svg>

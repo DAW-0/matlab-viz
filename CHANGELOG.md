@@ -4,6 +4,22 @@ All notable changes to MATLAB Viz will be documented here.
 
 ## [Unreleased]
 
+## [0.3.22] - 2026-11-03
+
+### Marketplace identity
+
+- Add an original four-node marketplace icon: blue dependencies converge on the
+  highlighted upper-left node and a green impact arrow leads to the lower-right.
+  Include the editable SVG and reproducible 256-pixel PNG, a matching dark banner
+  and explicit preview metadata. The theme-aware activity-bar icon is unchanged.
+- Add pinned development-only SVG rasterization, icon/package regression checks
+  and artwork documentation. No MATLAB analysis or graph-runtime behavior changes.
+- Request `daw-0` namespace ownership; trusted publishing remains gated on registry
+  verification and maintainer registration. Keep the working PAT bootstrap until
+  the replacement authentication path has been verified.
+
+### Public preview preparation carried forward
+
 - Publish the existing verified 0.3.21 public-preview source/tag and GitHub VSIX,
   enable/verify GitHub private vulnerability reporting, and publish the same
   checksum-verified archive on Open VSX as `daw-0.matlab-viz`. Add manual,

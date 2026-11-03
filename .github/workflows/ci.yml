@@ -25,6 +25,7 @@ jobs:
       # Development dependency lifecycle scripts are not needed for this build.
       - run: npm ci --ignore-scripts
       - run: npm audit --audit-level=moderate
+      - run: npm run icon:check
       - run: npm run check
       - run: npm run lint
       - run: npm run test:compile

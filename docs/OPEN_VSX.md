@@ -8,6 +8,11 @@ download's checksum. The preceding attempt was rejected for an invalid token;
 the maintainer replaced the GitHub secret, without disclosing it in chat or source.
 Namespace verification and OIDC migration are not yet completed.
 
+The maintainer authorized requesting ownership on 3 November 2026. The request
+is [EclipseFdn/open-vsx.org#15194](https://github.com/EclipseFdn/open-vsx.org/issues/15194),
+with matching GitHub/namespace identity and public history evidence. Registry
+approval is still required; the request itself does not grant ownership.
+
 Publisher namespace: `daw-0`. Extension ID: `daw-0.matlab-viz`.
 The initial release is the immutable, tested `matlab-viz-0.3.21.vsix` from the
 GitHub `v0.3.21` release. Its SHA-256 is:
