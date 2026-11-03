@@ -2,7 +2,7 @@
 
 MATLAB Viz is a MATLAB-first dependency explorer for VS Code and VSCodium. It runs MATLAB's documented dependency-analysis APIs locally, converts the results into a portable graph model, and presents that model as an interactive dependency and impact graph.
 
-> **Public preview:** `0.3.21` is validated with local Windows x64, VSCodium 1.143.17232 and MATLAB R2026b. Other editor/platform/MATLAB combinations are not validated release targets yet. Install from [Open VSX](https://open-vsx.org/extension/daw-0/matlab-viz) or download the [verified GitHub release](https://github.com/DAW-0/matlab-viz/releases/tag/v0.3.21). See [tested environments and support](SUPPORT.md), [acceptance findings](docs/ACCEPTANCE_TESTS.md) and [publication status](docs/RELEASE.md).
+> **Public preview:** `0.3.22` adds the four-node marketplace icon; its analysis runtime is unchanged from the tested 0.3.21 release. Validated integration remains local Windows x64, VSCodium 1.143.17232 and MATLAB R2026b. Other editor/platform/MATLAB combinations are not validated release targets yet. Install from [Open VSX](https://open-vsx.org/extension/daw-0/matlab-viz) or download the [verified GitHub release](https://github.com/DAW-0/matlab-viz/releases/tag/v0.3.22). See [tested environments and support](SUPPORT.md), [acceptance findings](docs/ACCEPTANCE_TESTS.md) and [publication status](docs/RELEASE.md).
 
 ## Why MATLAB Viz?
 
@@ -65,14 +65,14 @@ codium --install-extension daw-0.matlab-viz
 The [Open VSX listing](https://open-vsx.org/extension/daw-0/matlab-viz) contains
 the same verified VSIX as the GitHub release. For manual/offline installation:
 
-Download `matlab-viz-0.3.21.vsix` from the [GitHub release](https://github.com/DAW-0/matlab-viz/releases/tag/v0.3.21),
+Download `matlab-viz-0.3.22.vsix` from the [GitHub release](https://github.com/DAW-0/matlab-viz/releases/tag/v0.3.22),
 then run **Extensions: Install from VSIX** in VSCodium, or:
 
 ```powershell
-codium --install-extension matlab-viz-0.3.21.vsix
+codium --install-extension matlab-viz-0.3.22.vsix
 ```
 
-SHA-256: `85a059996960ebd6d42a03f56d20ba35733b5f4ec09ec841a131913afdf2b9d9`.
+SHA-256: `42c45b3ef68cf09183be7c906877cff90e3e958adaf362fcd7100cec927bedf2`.
 Configure the MATLAB executable if automatic detection cannot locate it.
 The released VSIX and source tag remain immutable; bundled preparation-time
 publication-hold wording is superseded by the current repository/release notes.

@@ -1,5 +1,11 @@
 # Open VSX publication
 
+Current version: [0.3.22](https://open-vsx.org/extension/daw-0/matlab-viz/0.3.22),
+with the four-node marketplace icon. The registry serves the exact original PNG;
+the icon-bearing VSIX SHA-256 is
+`42c45b3ef68cf09183be7c906877cff90e3e958adaf362fcd7100cec927bedf2`.
+The bootstrap and prepared OIDC workflows are pinned to these reviewed bytes.
+
 Published on 3 November 2026:
 [MATLAB Viz 0.3.21](https://open-vsx.org/extension/daw-0/matlab-viz).
 [Workflow run 41629809567](https://github.com/DAW-0/matlab-viz/actions/runs/41629809567)
@@ -24,7 +30,7 @@ GitHub `v0.3.21` release. Its SHA-256 is:
 ## Initial publication workflow
 
 `.github/workflows/publish-openvsx.yml` is manually triggered, main-branch-only
-and bound to those reviewed release bytes. It has no push/release/PR trigger
+and bound to the current reviewed release bytes. It has no push/release/PR trigger
 and does not check out, execute or rebuild repository source. The first `check`
 run downloads the GitHub asset, verifies its checksum, installs pinned `ovsx`
 1.3.0 with lifecycle scripts disabled and checks the public registry. It does
