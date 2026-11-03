@@ -2,8 +2,9 @@
 
 MATLAB Viz 0.3.21 is a public preview available as a verified
 [GitHub VSIX download](https://github.com/DAW-0/matlab-viz/releases/tag/v0.3.21).
-Open VSX publication is authorized but publisher-account setup remains pending;
-the GitHub release alone does not create a registry/editor-search listing.
+It is also published on [Open VSX](https://open-vsx.org/extension/daw-0/matlab-viz)
+as `daw-0.matlab-viz`; its downloadable VSIX matches the verified GitHub artifact.
+Namespace verification and trusted publishing are separate follow-up work.
 
 ## Validated integration environment
 

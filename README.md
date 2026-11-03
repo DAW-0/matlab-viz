@@ -2,7 +2,7 @@
 
 MATLAB Viz is a MATLAB-first dependency explorer for VS Code and VSCodium. It runs MATLAB's documented dependency-analysis APIs locally, converts the results into a portable graph model, and presents that model as an interactive dependency and impact graph.
 
-> **Public preview:** `0.3.21` is validated with local Windows x64, VSCodium 1.143.17232 and MATLAB R2026b. Other editor/platform/MATLAB combinations are not validated release targets yet. Download the [verified GitHub release](https://github.com/DAW-0/matlab-viz/releases/tag/v0.3.21). Open VSX publication is authorized but publisher setup is still pending; a GitHub release does not create an editor-search listing. See [tested environments and support](SUPPORT.md), [acceptance findings](docs/ACCEPTANCE_TESTS.md) and [publication status](docs/RELEASE.md).
+> **Public preview:** `0.3.21` is validated with local Windows x64, VSCodium 1.143.17232 and MATLAB R2026b. Other editor/platform/MATLAB combinations are not validated release targets yet. Install from [Open VSX](https://open-vsx.org/extension/daw-0/matlab-viz) or download the [verified GitHub release](https://github.com/DAW-0/matlab-viz/releases/tag/v0.3.21). See [tested environments and support](SUPPORT.md), [acceptance findings](docs/ACCEPTANCE_TESTS.md) and [publication status](docs/RELEASE.md).
 
 ## Why MATLAB Viz?
 
@@ -55,6 +55,15 @@ Microsoft VS Code, macOS/Linux integration, ARM, remote/WSL/container extension 
 File dependency graphs do not require the MATLAB language server. Function and symbol graphs require a MATLAB language extension that supplies Definition and References results in VSCodium. Your source code and dependency graph stay on your machine.
 
 ## Install the released preview
+
+In VSCodium's Extensions panel, search for `@id:daw-0.matlab-viz`, or run:
+
+```powershell
+codium --install-extension daw-0.matlab-viz
+```
+
+The [Open VSX listing](https://open-vsx.org/extension/daw-0/matlab-viz) contains
+the same verified VSIX as the GitHub release. For manual/offline installation:
 
 Download `matlab-viz-0.3.21.vsix` from the [GitHub release](https://github.com/DAW-0/matlab-viz/releases/tag/v0.3.21),
 then run **Extensions: Install from VSIX** in VSCodium, or:

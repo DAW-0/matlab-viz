@@ -7,9 +7,13 @@ the [GitHub release](https://github.com/DAW-0/matlab-viz/releases/tag/v0.3.21)
 provides the tested VSIX. A downloaded release asset matches SHA-256
 `85a059996960ebd6d42a03f56d20ba35733b5f4ec09ec841a131913afdf2b9d9`.
 
-Open VSX is **not yet published**: account linking, agreement acceptance and
-publisher credentials/namespace setup remain required. Microsoft Marketplace
-publication has not been authorized as part of this Open VSX-first step.
+Open VSX 0.3.21 was published on 3 November 2026 as
+[`daw-0.matlab-viz`](https://open-vsx.org/extension/daw-0/matlab-viz).
+The [successful publishing run](https://github.com/DAW-0/matlab-viz/actions/runs/41629809567)
+verified the public version and downloaded bytes against the same SHA-256.
+The namespace exists but is not yet verified; trusted publishing is not enabled.
+See [Open VSX operations](OPEN_VSX.md) for credential boundaries and next steps.
+Microsoft Marketplace publication has not been authorized as part of this Open VSX-first step.
 Private vulnerability reporting is enabled and confirmed by the GitHub API.
 The release source's four Windows/Linux Node CI jobs passed, including audit,
 tests and repeated-package byte equality; those are not Linux MATLAB/editor tests.
@@ -118,10 +122,9 @@ the user's graph window. Verify the installed version and runtime/renderer hashe
 4. Confirm publisher ownership/authentication separately for the Visual Studio
    Marketplace and Open VSX. Open VSX requires its namespace and Publisher
    Agreement. Do not sign an agreement or create/use publication tokens silently.
-5. GitHub release and Open VSX upload are authorized. Publish the verified
-   immutable VSIX, not an unreviewed rebuild, once the Open VSX prerequisites
-   are complete. Do not claim an editor-search listing until its registry API
-   confirms the extension/version. Microsoft Marketplace remains separate.
+5. GitHub and Open VSX both provide the verified immutable VSIX. Future versions
+   require reviewed release bytes and explicit publication authorization; the
+   current bootstrap workflow is pinned to 0.3.21. Microsoft Marketplace remains separate.
 
 CI's four Windows/Linux Node jobs passed on the published release commit. They
 have no publication step and do not establish MATLAB/editor integration support.
