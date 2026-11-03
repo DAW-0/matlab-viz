@@ -59,6 +59,40 @@ are not rebuilt or moved by adding the workflow.
 
 ## Namespace verification and trusted publishing
 
+### Prepared migration, awaiting registry approval
+
+The current bootstrap targets the reviewed 0.3.22 icon release, SHA-256
+`42c45b3ef68cf09183be7c906877cff90e3e958adaf362fcd7100cec927bedf2`.
+The separate `.github/workflows/publish-openvsx-trusted.yml` is prepared but is
+not registered/activated at Open VSX. Its publishing job has `id-token: write`,
+no `secrets.OVSX_PAT` reference or token fallback, an explicit
+`--trusted-publishing` flag, and a public namespace-verification precondition.
+The working bootstrap remains available while ownership is under review.
+
+After ownership is approved, the maintainer must register these exact fields
+under Open VSX **Settings → Trusted Publishers** for `daw-0.matlab-viz`:
+
+| Field | Value |
+| --- | --- |
+| Provider | GitHub Actions |
+| Organization or user | `DAW-0` |
+| Repository | `matlab-viz` |
+| Workflow filename | `publish-openvsx-trusted.yml` |
+| Environment | Leave blank for this prepared workflow; no environment is currently declared |
+
+Review branch protection and a protected publishing environment before relying
+on OIDC for long-term release access. If an environment is added, update both
+the job and registry registration together; do not silently claim protection
+that has not been configured.
+
+The trusted workflow defaults to `verify`, requiring 0.3.22 already to exist.
+It invokes the official CLI with `--skip-duplicate`: the CLI performs OIDC
+exchange before upload, then treats the existing-version rejection as a skip.
+This checks authentication without replacing release bytes; registry identity
+and download checksum are also checked. The explicit `publish` mode can upload
+the pinned artifact if absent. Neither mode deletes versions or rewrites source.
+Do not call migration verified until an actual registered OIDC run succeeds.
+
 Namespace creation allows initial publication but does not establish verified
 namespace ownership. Follow Open VSX's [namespace ownership process](https://github.com/eclipse-openvsx/openvsx/wiki/Namespace-Access)
 before claiming a verified-publisher badge. Filing an ownership request is public

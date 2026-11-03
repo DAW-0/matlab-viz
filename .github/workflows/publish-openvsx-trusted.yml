@@ -1,0 +1,103 @@
+name: Open VSX trusted publishing (requires namespace approval)
+
+# Prepared, not activated at the registry. No PAT fallback: registering this
+# exact filename in Open VSX is required after namespace ownership is approved.
+on:
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: Verify OIDC against an existing version, or publish
+        type: choice
+        options: [verify, publish]
+        default: verify
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: openvsx-daw-0-matlab-viz
+  cancel-in-progress: false
+
+jobs:
+  trusted-publish:
+    if: github.repository == 'DAW-0/matlab-viz' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      VSIX_SHA256: 42c45b3ef68cf09183be7c906877cff90e3e958adaf362fcd7100cec927bedf2
+      OPERATION: ${{ inputs.operation }}
+    steps:
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: 26.13.0
+      - name: Require verified namespace and safe verification target
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          const response = await fetch('https://open-vsx.org/api/daw-0', {signal: AbortSignal.timeout(30000)});
+          assert.ok(response.ok, `Namespace HTTP ${response.status}`);
+          assert.equal((await response.json()).verified, true, 'Namespace ownership approval is required');
+          if (process.env.OPERATION === 'verify') {
+            const version = await fetch('https://open-vsx.org/api/daw-0/matlab-viz/0.3.22', {signal: AbortSignal.timeout(30000)});
+            assert.ok(version.ok, 'Verify mode requires an already published version; refusing a first upload');
+            const metadata = await version.json();
+            assert.equal(metadata.namespace, 'daw-0');
+            assert.equal(metadata.name, 'matlab-viz');
+            assert.equal(metadata.version, '0.3.22');
+          }
+          NODE
+      - name: Download immutable release and verify checksum
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/release"
+          gh release download v0.3.22 --repo DAW-0/matlab-viz \
+            --pattern matlab-viz-0.3.22.vsix --dir "$RUNNER_TEMP/release"
+          printf '%s  %s\n' "$VSIX_SHA256" "$RUNNER_TEMP/release/matlab-viz-0.3.22.vsix" | sha256sum --check
+      - name: Install pinned CLI without lifecycle scripts
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --prefix "$RUNNER_TEMP/openvsx-cli" --ignore-scripts \
+            --no-audit --no-fund --package-lock=false ovsx@1.3.0
+      - name: Authenticate exclusively with short-lived OIDC
+        shell: bash
+        run: |
+          set -euo pipefail
+          # No secrets reference or PAT fallback. The official CLI exchanges
+          # OIDC before uploading; duplicate rejection is safely skipped, making
+          # verify mode test authentication without replacing release bytes.
+          unset OVSX_PAT OVSX_ID_TOKEN
+          "$RUNNER_TEMP/openvsx-cli/node_modules/.bin/ovsx" publish \
+            "$RUNNER_TEMP/release/matlab-viz-0.3.22.vsix" \
+            --registryUrl https://open-vsx.org --trusted-publishing --skip-duplicate
+      - name: Verify registry bytes after OIDC operation
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import {createHash} from 'node:crypto';
+          let metadata;
+          for (let attempt = 0; attempt < 30; attempt++) {
+            const response = await fetch('https://open-vsx.org/api/daw-0/matlab-viz/0.3.22', {signal: AbortSignal.timeout(30000)});
+            if (response.ok) {metadata = await response.json(); break;}
+            if (![404, 429, 503].includes(response.status)) throw new Error(`Registry HTTP ${response.status}`);
+            await new Promise(resolve => setTimeout(resolve, 10000));
+          }
+          assert.ok(metadata, 'Registry version unavailable');
+          const url = new URL(metadata.files.download);
+          assert.equal(url.origin, 'https://open-vsx.org');
+          const download = await fetch(url, {signal: AbortSignal.timeout(60000)});
+          assert.ok(download.ok);
+          const sha = createHash('sha256').update(Buffer.from(await download.arrayBuffer())).digest('hex');
+          assert.equal(sha, process.env.VSIX_SHA256);
+          console.log(`OIDC operation complete; immutable registry download verified: ${sha}`);
+          NODE
