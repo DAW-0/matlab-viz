@@ -1,10 +1,12 @@
 # Open VSX publication
 
-Current version: [0.3.22](https://open-vsx.org/extension/daw-0/matlab-viz/0.3.22),
-with the four-node marketplace icon. The registry serves the exact original PNG;
-the icon-bearing VSIX SHA-256 is
-`42c45b3ef68cf09183be7c906877cff90e3e958adaf362fcd7100cec927bedf2`.
-The bootstrap and prepared OIDC workflows are pinned to these reviewed bytes.
+Current version: [0.3.23](https://open-vsx.org/extension/daw-0/matlab-viz/0.3.23),
+with matching marketplace and theme-aware activity-bar icons. VSIX SHA-256:
+`f047c8b961b77d7d1f0ef68d553f591cfa3a334a70ffc22147b520271b43e456`.
+The bootstrap targets these reviewed bytes. The prepared OIDC workflow deliberately
+retains the already-published 0.3.22 verification target; it has not been activated.
+Current publication evidence:
+[run 41636481880](https://github.com/DAW-0/matlab-viz/actions/runs/41636481880).
 
 Published on 3 November 2026:
 [MATLAB Viz 0.3.21](https://open-vsx.org/extension/daw-0/matlab-viz).
@@ -67,7 +69,8 @@ are not rebuilt or moved by adding the workflow.
 
 ### Prepared migration, awaiting registry approval
 
-The current bootstrap targets the reviewed 0.3.22 icon release, SHA-256
+The current bootstrap targets 0.3.23 as recorded above. The prepared OIDC
+verification target remains 0.3.22, SHA-256
 `42c45b3ef68cf09183be7c906877cff90e3e958adaf362fcd7100cec927bedf2`.
 The separate `.github/workflows/publish-openvsx-trusted.yml` is prepared but is
 not registered/activated at Open VSX. Its publishing job has `id-token: write`,

@@ -2,7 +2,12 @@
 
 MATLAB Viz is a MATLAB-first dependency explorer for VS Code and VSCodium. It runs MATLAB's documented dependency-analysis APIs locally, converts the results into a portable graph model, and presents that model as an interactive dependency and impact graph.
 
-> **Public preview:** `0.3.22` adds the four-node marketplace icon; its analysis runtime is unchanged from the tested 0.3.21 release. Validated integration remains local Windows x64, VSCodium 1.143.17232 and MATLAB R2026b. Other editor/platform/MATLAB combinations are not validated release targets yet. Install from [Open VSX](https://open-vsx.org/extension/daw-0/matlab-viz) or download the [verified GitHub release](https://github.com/DAW-0/matlab-viz/releases/tag/v0.3.22). See [tested environments and support](SUPPORT.md), [acceptance findings](docs/ACCEPTANCE_TESTS.md) and [publication status](docs/RELEASE.md).
+> **Public preview:** `0.3.23` includes matching marketplace and theme-aware activity-bar icons; its analysis runtime is unchanged from the tested 0.3.21 release. Validated integration remains local Windows x64, VSCodium 1.143.17232 and MATLAB R2026b. Other editor/platform/MATLAB combinations are not validated release targets yet. Install from [Open VSX](https://open-vsx.org/extension/daw-0/matlab-viz) or download the [verified GitHub release](https://github.com/DAW-0/matlab-viz/releases/tag/v0.3.23). See [tested environments and support](SUPPORT.md), [acceptance findings](docs/ACCEPTANCE_TESTS.md) and [publication status](docs/RELEASE.md).
+
+**Project status:** Maintenance-focused. The current functionality meets the
+maintainer's intended use; future work prioritizes reproducible bugs, security
+upkeep and compatibility checks. The [roadmap](docs/ROADMAP.md) contains optional
+ideas, not scheduled feature commitments.
 
 ## Why MATLAB Viz?
 
@@ -65,14 +70,14 @@ codium --install-extension daw-0.matlab-viz
 The [Open VSX listing](https://open-vsx.org/extension/daw-0/matlab-viz) contains
 the same verified VSIX as the GitHub release. For manual/offline installation:
 
-Download `matlab-viz-0.3.22.vsix` from the [GitHub release](https://github.com/DAW-0/matlab-viz/releases/tag/v0.3.22),
+Download `matlab-viz-0.3.23.vsix` from the [GitHub release](https://github.com/DAW-0/matlab-viz/releases/tag/v0.3.23),
 then run **Extensions: Install from VSIX** in VSCodium, or:
 
 ```powershell
-codium --install-extension matlab-viz-0.3.22.vsix
+codium --install-extension matlab-viz-0.3.23.vsix
 ```
 
-SHA-256: `42c45b3ef68cf09183be7c906877cff90e3e958adaf362fcd7100cec927bedf2`.
+SHA-256: `f047c8b961b77d7d1f0ef68d553f591cfa3a334a70ffc22147b520271b43e456`.
 Configure the MATLAB executable if automatic detection cannot locate it.
 The released VSIX and source tag remain immutable; bundled preparation-time
 publication-hold wording is superseded by the current repository/release notes.

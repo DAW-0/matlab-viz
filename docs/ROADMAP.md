@@ -1,5 +1,19 @@
 # Roadmap
 
+## Maintenance focus (3 November 2026)
+
+The current feature set meets the maintainer's intended use. Work now focuses on
+reproducible bug fixes, security/dependency upkeep and compatibility checks when
+the validated editor/MATLAB environment changes. New features, new platforms and
+a 1.0 release are optional future choices, not prerequisites or commitments.
+
+Release housekeeping is separate from feature development: the 0.3.23
+activity-bar icon update is published; await namespace ownership approval before
+activating the prepared OIDC workflow and retiring the temporary token. See
+[publication status](RELEASE.md) and [Open VSX operations](OPEN_VSX.md).
+
+The historical feature ideas below remain a backlog, not scheduled work.
+
 ## 0.1 — functional foundation
 
 - [x] MATLAB Project Dependency Analyzer backend
@@ -9,7 +23,7 @@
 - [x] File watching, cancellation, caching, logs, and settings
 - [x] MATLAB backend integration test on a real subsystem
 - [x] Complete Windows Extension Development Host validation (ongoing regression suite)
-- [x] Package and install local VSIX builds (public publishing remains on hold)
+- [x] Package/install local VSIX builds and publish verified previews on GitHub/Open VSX
 
 ## 0.2 — richer MATLAB semantics
 
@@ -33,7 +47,7 @@
 - Community detection and centrality ranking
 - Minimap and virtualized rendering for very large projects
 - [x] Complete analysis baselines, evidence comparison and Markdown/JSON reports (0.3.20)
-- [x] MIT local release preparation and reproducible tagged-package workflow (0.3.21; publication still on hold)
+- [x] MIT release preparation and reproducible tagged-package workflow (0.3.21 onward)
 
 ## 1.0 — production release
 

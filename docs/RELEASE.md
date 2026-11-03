@@ -1,6 +1,21 @@
 # Local release procedure and public-release gates
 
-## Current release: 0.3.22
+## Current release: 0.3.23
+
+The [GitHub release](https://github.com/DAW-0/matlab-viz/releases/tag/v0.3.23)
+and [Open VSX 0.3.23](https://open-vsx.org/extension/daw-0/matlab-viz/0.3.23)
+provide the matching theme-aware four-node activity-bar icon. The colored gallery
+PNG and analysis runtime are unchanged. SHA-256:
+`f047c8b961b77d7d1f0ef68d553f591cfa3a334a70ffc22147b520271b43e456`.
+Repeated clean-tag packaging produced identical bytes, 212 tests passed with
+two opt-in MATLAB-process tests skipped, and source/package CI passed on all four
+Windows/Linux Node jobs. See [0.3.23 validation](VALIDATION_0.3.23.md).
+
+The maintainer considers the feature set sufficient. The project is now
+maintenance-focused; namespace ownership approval and subsequent OIDC activation
+are the remaining release-security follow-up, not blockers to normal use.
+
+## Marketplace icon release: 0.3.22
 
 The [GitHub icon release](https://github.com/DAW-0/matlab-viz/releases/tag/v0.3.22)
 and [Open VSX 0.3.22](https://open-vsx.org/extension/daw-0/matlab-viz/0.3.22)
@@ -142,7 +157,7 @@ the user's graph window. Verify the installed version and runtime/renderer hashe
    Agreement. Do not sign an agreement or create/use publication tokens silently.
 5. GitHub and Open VSX both provide the verified immutable VSIX. Future versions
    require reviewed release bytes and explicit publication authorization; the
-   current bootstrap workflow is pinned to 0.3.22. Microsoft Marketplace remains separate.
+   current bootstrap workflow is pinned to 0.3.23. Microsoft Marketplace remains separate.
 
 CI's four Windows/Linux Node jobs passed on the published release commit. They
 have no publication step and do not establish MATLAB/editor integration support.

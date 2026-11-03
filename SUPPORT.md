@@ -1,7 +1,7 @@
 # Support and tested environments
 
-MATLAB Viz 0.3.22 is a public preview available as a verified
-[GitHub VSIX download](https://github.com/DAW-0/matlab-viz/releases/tag/v0.3.22).
+MATLAB Viz 0.3.23 is a maintenance-focused public preview available as a verified
+[GitHub VSIX download](https://github.com/DAW-0/matlab-viz/releases/tag/v0.3.23).
 This is an icon/metadata release: its runtime bundle, MATLAB helpers and graph
 scripts are unchanged from 0.3.21; that release's native integration evidence is
 carried forward explicitly, not represented as a new full MATLAB test run.
