@@ -22,7 +22,8 @@ concurrency:
 jobs:
   trusted-publish:
     if: github.repository == 'DAW-0/matlab-viz' && github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
+    # Pin the supported LTS image instead of following ubuntu-latest rollovers.
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
       contents: read
