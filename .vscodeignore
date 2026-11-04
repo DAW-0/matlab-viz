@@ -22,3 +22,5 @@ node_modules/**
 *.vsix
 *.log
 matlab-viz-publishing.txt
+# Local ownership evidence is not extension runtime documentation.
+Claiming namespace daw-0*.pdf

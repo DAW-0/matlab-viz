@@ -12,8 +12,9 @@ two opt-in MATLAB-process tests skipped, and source/package CI passed on all fou
 Windows/Linux Node jobs. See [0.3.23 validation](VALIDATION_0.3.23.md).
 
 The maintainer considers the feature set sufficient. The project is now
-maintenance-focused; namespace ownership approval and subsequent OIDC activation
-are the remaining release-security follow-up, not blockers to normal use.
+maintenance-focused. Namespace ownership was approved on 4 November 2026 and
+the maintainer registered the OIDC workflow. Live token-free verification and
+temporary-credential retirement remain follow-up, not blockers to normal use.
 
 ## Marketplace icon release: 0.3.22
 

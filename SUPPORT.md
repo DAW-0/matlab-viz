@@ -7,7 +7,9 @@ scripts are unchanged from 0.3.21; that release's native integration evidence is
 carried forward explicitly, not represented as a new full MATLAB test run.
 It is also published on [Open VSX](https://open-vsx.org/extension/daw-0/matlab-viz)
 as `daw-0.matlab-viz`; its downloadable VSIX matches the verified GitHub artifact.
-Namespace verification and trusted publishing are separate follow-up work.
+Open VSX verified namespace ownership on 4 November 2026. The maintainer has
+registered the token-free publishing workflow; live OIDC verification is in
+progress, so the working temporary credential has not yet been retired.
 
 ## Validated integration environment
 

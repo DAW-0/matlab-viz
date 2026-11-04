@@ -3,8 +3,18 @@
 Current version: [0.3.23](https://open-vsx.org/extension/daw-0/matlab-viz/0.3.23),
 with matching marketplace and theme-aware activity-bar icons. VSIX SHA-256:
 `f047c8b961b77d7d1f0ef68d553f591cfa3a334a70ffc22147b520271b43e456`.
-The bootstrap targets these reviewed bytes. The prepared OIDC workflow deliberately
-retains the already-published 0.3.22 verification target; it has not been activated.
+The bootstrap targets these reviewed bytes. The OIDC workflow deliberately
+retains the already-published 0.3.22 verification target. On 4 November 2026,
+namespace ownership was approved (issue closed; registry `verified: true`) and
+the maintainer registered the exact trusted-publisher workflow. Live verification
+was first requested by [run 41877863246](https://github.com/DAW-0/matlab-viz/actions/runs/41877863246).
+It stayed queued without a runner. The same registered workflow was pinned to
+supported Ubuntu 24.04 and retried as
+[run 41878905602](https://github.com/DAW-0/matlab-viz/actions/runs/41878905602).
+The retry and contemporaneous source CI are also queued; Actions is enabled and
+there are no pending environment approvals. No OIDC exchange has yet been
+observed, so neither a successful migration nor token retirement is claimed.
+Keep the temporary credential until a live verification run succeeds.
 Current publication evidence:
 [run 41636481880](https://github.com/DAW-0/matlab-viz/actions/runs/41636481880).
 
@@ -14,12 +24,13 @@ Published on 3 November 2026:
 created the namespace, uploaded the immutable archive and verified the public
 download's checksum. The preceding attempt was rejected for an invalid token;
 the maintainer replaced the GitHub secret, without disclosing it in chat or source.
-Namespace verification and OIDC migration are not yet completed.
+The first publication used a PAT; subsequent OIDC migration is recorded above.
 
 The maintainer authorized requesting ownership on 3 November 2026. The request
 is [EclipseFdn/open-vsx.org#15194](https://github.com/EclipseFdn/open-vsx.org/issues/15194),
 with matching GitHub/namespace identity and public history evidence. Registry
-approval is still required; the request itself does not grant ownership.
+approval has now been granted; the live registry status, not merely submission
+of the request or a local PDF snapshot, confirms namespace verification.
 
 Publisher namespace: `daw-0`. Extension ID: `daw-0.matlab-viz`.
 The initial release is the immutable, tested `matlab-viz-0.3.21.vsix` from the
@@ -67,19 +78,19 @@ are not rebuilt or moved by adding the workflow.
 
 ## Namespace verification and trusted publishing
 
-### Prepared migration, awaiting registry approval
+### Trusted-publisher configuration
 
 The current bootstrap targets 0.3.23 as recorded above. The prepared OIDC
 verification target remains 0.3.22, SHA-256
 `42c45b3ef68cf09183be7c906877cff90e3e958adaf362fcd7100cec927bedf2`.
-The separate `.github/workflows/publish-openvsx-trusted.yml` is prepared but is
-not registered/activated at Open VSX. Its publishing job has `id-token: write`,
+The separate `.github/workflows/publish-openvsx-trusted.yml` is registered at
+Open VSX. Its publishing job has `id-token: write`,
 no `secrets.OVSX_PAT` reference or token fallback, an explicit
 `--trusted-publishing` flag, and a public namespace-verification precondition.
-The working bootstrap remains available while ownership is under review.
+The working bootstrap remains available until token-free verification succeeds.
 
-After ownership is approved, the maintainer must register these exact fields
-under Open VSX **Settings → Trusted Publishers** for `daw-0.matlab-viz`:
+The maintainer registered these exact fields under Open VSX
+**Settings → Trusted Publishers** for `daw-0.matlab-viz`:
 
 | Field | Value |
 | --- | --- |
@@ -128,3 +139,8 @@ from both Git and future VSIX builds. It must not be staged, read into logs,
 uploaded as an artifact or copied into documentation. Existing credential-free
 release bytes remain unchanged. Keep credentials in secure storage; Git ignore
 rules are not encryption or protection from local access or backups.
+
+The maintainer's local namespace-approval PDF is preserved untracked. Ownership
+was confirmed through the live issue and namespace API, not by copying the PDF
+into public release assets. Ownership-snapshot PDFs are excluded from future
+VSIX packages; they are not extension runtime documentation.

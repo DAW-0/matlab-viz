@@ -8,8 +8,9 @@ the validated editor/MATLAB environment changes. New features, new platforms and
 a 1.0 release are optional future choices, not prerequisites or commitments.
 
 Release housekeeping is separate from feature development: the 0.3.23
-activity-bar icon update is published; await namespace ownership approval before
-activating the prepared OIDC workflow and retiring the temporary token. See
+activity-bar icon update is published. Namespace ownership was approved on
+4 November 2026 and the OIDC workflow registered; verify it live before retiring
+the temporary token. See
 [publication status](RELEASE.md) and [Open VSX operations](OPEN_VSX.md).
 
 The historical feature ideas below remain a backlog, not scheduled work.
