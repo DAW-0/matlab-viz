@@ -13,8 +13,10 @@ Windows/Linux Node jobs. See [0.3.23 validation](VALIDATION_0.3.23.md).
 
 The maintainer considers the feature set sufficient. The project is now
 maintenance-focused. Namespace ownership was approved on 4 November 2026 and
-the maintainer registered the OIDC workflow. Live token-free verification and
-temporary-credential retirement remain follow-up, not blockers to normal use.
+the maintainer registered the OIDC workflow. Live token-free verification passed
+on 4 November 2026 and the old GitHub secret/PAT workflow are retired. The
+maintainer must still revoke the original token in Open VSX; this is not a
+blocker to ordinary extension use. See [publishing operations](OPEN_VSX.md).
 
 ## Marketplace icon release: 0.3.22
 
@@ -29,8 +31,8 @@ runtime is byte-identical to 0.3.21; full native integration was not rerun for a
 See [0.3.22 validation](VALIDATION_0.3.22.md) and [artwork](BRANDING.md).
 
 Namespace claim [15194](https://github.com/EclipseFdn/open-vsx.org/issues/15194)
-is awaiting external approval. The separate OIDC workflow is prepared, not yet
-registered/activated; retain the working token until migration is verified.
+was awaiting external approval at that release. Ownership and live token-free
+authentication were verified on 4 November 2026; see the current state above.
 
 ## Initial public release: 0.3.21
 
@@ -45,7 +47,8 @@ Open VSX 0.3.21 was published on 3 November 2026 as
 [`daw-0.matlab-viz`](https://open-vsx.org/extension/daw-0/matlab-viz).
 The [successful publishing run](https://github.com/DAW-0/matlab-viz/actions/runs/41629809567)
 verified the public version and downloaded bytes against the same SHA-256.
-The namespace exists but is not yet verified; trusted publishing is not enabled.
+At the initial release, the namespace was unverified and trusted publishing was
+not enabled; this historical state is superseded by the current state above.
 See [Open VSX operations](OPEN_VSX.md) for credential boundaries and next steps.
 Microsoft Marketplace publication has not been authorized as part of this Open VSX-first step.
 Private vulnerability reporting is enabled and confirmed by the GitHub API.
@@ -158,7 +161,8 @@ the user's graph window. Verify the installed version and runtime/renderer hashe
    Agreement. Do not sign an agreement or create/use publication tokens silently.
 5. GitHub and Open VSX both provide the verified immutable VSIX. Future versions
    require reviewed release bytes and explicit publication authorization; the
-   current bootstrap workflow is pinned to 0.3.23. Microsoft Marketplace remains separate.
+   current trusted workflow retains 0.3.22 as its safe authentication-verification
+   target; its bootstrap predecessor is retired. Microsoft Marketplace remains separate.
 
 CI's four Windows/Linux Node jobs passed on the published release commit. They
 have no publication step and do not establish MATLAB/editor integration support.

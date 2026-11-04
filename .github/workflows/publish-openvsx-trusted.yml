@@ -1,7 +1,7 @@
-name: Open VSX trusted publishing (requires namespace approval)
+name: Open VSX trusted publishing
 
-# Prepared, not activated at the registry. No PAT fallback: registering this
-# exact filename in Open VSX is required after namespace ownership is approved.
+# Registered and verified on 4 November 2026. Keep this exact filename: Open
+# VSX binds its registration to it. There is deliberately no PAT fallback.
 on:
   workflow_dispatch:
     inputs:

@@ -1,96 +1,32 @@
 # Open VSX publication
 
-Current version: [0.3.23](https://open-vsx.org/extension/daw-0/matlab-viz/0.3.23),
-with matching marketplace and theme-aware activity-bar icons. VSIX SHA-256:
+## Current state
+
+Current public version: [0.3.23](https://open-vsx.org/extension/daw-0/matlab-viz/0.3.23).
+Its VSIX SHA-256 is
 `f047c8b961b77d7d1f0ef68d553f591cfa3a334a70ffc22147b520271b43e456`.
-The bootstrap targets these reviewed bytes. The OIDC workflow deliberately
-retains the already-published 0.3.22 verification target. On 4 November 2026,
-namespace ownership was approved (issue closed; registry `verified: true`) and
-the maintainer registered the exact trusted-publisher workflow. Live verification
-was first requested by [run 41877863246](https://github.com/DAW-0/matlab-viz/actions/runs/41877863246).
-It stayed queued without a runner. The same registered workflow was pinned to
-supported Ubuntu 24.04 and retried as
-[run 41878905602](https://github.com/DAW-0/matlab-viz/actions/runs/41878905602).
-The retry and contemporaneous source CI are also queued; Actions is enabled and
-there are no pending environment approvals. No OIDC exchange has yet been
-observed, so neither a successful migration nor token retirement is claimed.
-Keep the temporary credential until a live verification run succeeds.
-Current publication evidence:
-[run 41636481880](https://github.com/DAW-0/matlab-viz/actions/runs/41636481880).
+[Publication run 41636481880](https://github.com/DAW-0/matlab-viz/actions/runs/41636481880)
+verified those registry bytes. No runtime release is needed for this migration.
 
-Published on 3 November 2026:
-[MATLAB Viz 0.3.21](https://open-vsx.org/extension/daw-0/matlab-viz).
-[Workflow run 41629809567](https://github.com/DAW-0/matlab-viz/actions/runs/41629809567)
-created the namespace, uploaded the immutable archive and verified the public
-download's checksum. The preceding attempt was rejected for an invalid token;
-the maintainer replaced the GitHub secret, without disclosing it in chat or source.
-The first publication used a PAT; subsequent OIDC migration is recorded above.
+Open VSX approved namespace `daw-0` on 4 November 2026:
+[ownership request 15194](https://github.com/EclipseFdn/open-vsx.org/issues/15194)
+is closed and the live namespace API reports `verified: true`.
 
-The maintainer authorized requesting ownership on 3 November 2026. The request
-is [EclipseFdn/open-vsx.org#15194](https://github.com/EclipseFdn/open-vsx.org/issues/15194),
-with matching GitHub/namespace identity and public history evidence. Registry
-approval has now been granted; the live registry status, not merely submission
-of the request or a local PDF snapshot, confirms namespace verification.
+The maintainer registered GitHub Actions trusted publishing.
+[Verification run 41878905602](https://github.com/DAW-0/matlab-viz/actions/runs/41878905602)
+succeeded: Open VSX issued a short-lived token, the CLI skipped existing version
+0.3.22, and its downloaded VSIX checksum matched. No release was replaced and
+no new version was invented to test authentication. The initial `ubuntu-latest`
+run also eventually succeeded after queuing. The workflow now pins supported
+Ubuntu 24.04 for image stability, not as a proven queue remedy.
 
-Publisher namespace: `daw-0`. Extension ID: `daw-0.matlab-viz`.
-The initial release is the immutable, tested `matlab-viz-0.3.21.vsix` from the
-GitHub `v0.3.21` release. Its SHA-256 is:
+The PAT bootstrap workflow has been removed (recoverable in Git history), and
+the obsolete `OVSX_PAT` GitHub repository secret has been removed. **The maintainer
+must still revoke the original token in Open VSX Settings → Access Tokens.**
+Deleting a GitHub secret does not revoke its registry credential. No token value
+was retrieved, printed, copied from local notes or committed during migration.
 
-```text
-85a059996960ebd6d42a03f56d20ba35733b5f4ec09ec841a131913afdf2b9d9
-```
-
-## Initial publication workflow
-
-`.github/workflows/publish-openvsx.yml` is manually triggered, main-branch-only
-and bound to the current reviewed release bytes. It has no push/release/PR trigger
-and does not check out, execute or rebuild repository source. The first `check`
-run downloads the GitHub asset, verifies its checksum, installs pinned `ovsx`
-1.3.0 with lifecycle scripts disabled and checks the public registry. It does
-not receive the publishing secret or create anything in Open VSX.
-
-An explicit `publish` run receives repository secret `OVSX_PAT` only in the
-namespace-create/upload step. The secret is an environment variable, never a
-command-line argument or output. The workflow has read-only GitHub contents
-permission; it neither creates nor retrieves the secret value through GitHub's
-API. It creates `daw-0` only if absent, uploads the existing VSIX, then checks
-the public version identity and downloads its bytes for SHA-256 verification.
-An existing version is verified instead of overwritten. Registry scanning and
-availability checks have bounded waits. A failed verification must be investigated,
-not treated as permission to delete/re-publish an immutable version.
-
-Dry run:
-
-```powershell
-gh workflow run publish-openvsx.yml --repo DAW-0/matlab-viz --ref main --field operation=check
-```
-
-Only after release authorization and successful checks:
-
-```powershell
-gh workflow run publish-openvsx.yml --repo DAW-0/matlab-viz --ref main --field operation=publish
-```
-
-The workflow intentionally has no arbitrary version, shell command, namespace,
-registry URL or checksum input. Future releases need a reviewed version/hash
-change or a separately reviewed release manifest design. The runtime VSIX/tag
-are not rebuilt or moved by adding the workflow.
-
-## Namespace verification and trusted publishing
-
-### Trusted-publisher configuration
-
-The current bootstrap targets 0.3.23 as recorded above. The prepared OIDC
-verification target remains 0.3.22, SHA-256
-`42c45b3ef68cf09183be7c906877cff90e3e958adaf362fcd7100cec927bedf2`.
-The separate `.github/workflows/publish-openvsx-trusted.yml` is registered at
-Open VSX. Its publishing job has `id-token: write`,
-no `secrets.OVSX_PAT` reference or token fallback, an explicit
-`--trusted-publishing` flag, and a public namespace-verification precondition.
-The working bootstrap remains available until token-free verification succeeds.
-
-The maintainer registered these exact fields under Open VSX
-**Settings → Trusted Publishers** for `daw-0.matlab-viz`:
+## Registered workflow identity
 
 | Field | Value |
 | --- | --- |
@@ -98,49 +34,45 @@ The maintainer registered these exact fields under Open VSX
 | Organization or user | `DAW-0` |
 | Repository | `matlab-viz` |
 | Workflow filename | `publish-openvsx-trusted.yml` |
-| Environment | Leave blank for this prepared workflow; no environment is currently declared |
+| Environment | None currently declared or registered |
 
-Review branch protection and a protected publishing environment before relying
-on OIDC for long-term release access. If an environment is added, update both
-the job and registry registration together; do not silently claim protection
-that has not been configured.
+Keep the exact workflow filename unless the registry registration is migrated
+too. Registrations are not branch pins: protect repository write/workflow access.
+The job currently checks `refs/heads/main`; a protected publishing environment
+with reviewers remains optional hardening, not a configured guarantee.
 
-The trusted workflow defaults to `verify`, requiring 0.3.22 already to exist.
-It invokes the official CLI with `--skip-duplicate`: the CLI performs OIDC
-exchange before upload, then treats the existing-version rejection as a skip.
-This checks authentication without replacing release bytes; registry identity
-and download checksum are also checked. The explicit `publish` mode can upload
-the pinned artifact if absent. Neither mode deletes versions or rewrites source.
-Do not call migration verified until an actual registered OIDC run succeeds.
+## Verification and future releases
 
-Namespace creation allows initial publication but does not establish verified
-namespace ownership. Follow Open VSX's [namespace ownership process](https://github.com/eclipse-openvsx/openvsx/wiki/Namespace-Access)
-before claiming a verified-publisher badge. Filing an ownership request is public
-external coordination and requires maintainer approval.
+```powershell
+gh workflow run publish-openvsx-trusted.yml --repo DAW-0/matlab-viz --ref main --field operation=verify
+```
 
-Open VSX currently requires namespace ownership, a signed Publisher Agreement
-and at least one active extension version before registering a
-[trusted publisher](https://github.com/eclipse-openvsx/openvsx/wiki/Trusted-Publishing).
-Once eligible, review a workflow migration to short-lived OIDC publishing:
-register the exact GitHub owner/repository/workflow, preferably a protected
-environment, add `id-token: write` only to the publishing job and explicitly use
-`--trusted-publishing`. The current bootstrap workflow has no OIDC permission
-and must not be claimed to use trusted publishing.
+The workflow is manual-only, main-only, checksum-pinned, has no source checkout
+or repository lifecycle execution, and uses pinned Node setup/CLI versions.
+Only its publishing job has `id-token: write`; there is no secrets reference or
+PAT fallback. The official CLI uses `--trusted-publishing --skip-duplicate` and
+keeps credentials out of logs and command arguments.
 
-Once the migration is verified, revoke the temporary Open VSX token and remove
-its GitHub secret. Merely removing a secret does not revoke its registry token;
-an `OVSX_PAT` still present in a migrated job overrides OIDC. Do not remove the
-only working credential before the replacement path has been verified.
+The current verification target deliberately remains immutable version 0.3.22,
+SHA-256 `42c45b3ef68cf09183be7c906877cff90e3e958adaf362fcd7100cec927bedf2`.
+Verify mode refuses to proceed if it is absent. The CLI exchanges OIDC before
+upload, then skips duplicate-version rejection; public download identity/checksum
+is checked afterward. No version is deleted or overwritten.
 
-## Credential-file safety
+For a future release, review/update the pinned version/checksum and preconditions
+together, complete release validation, publish the immutable GitHub asset, and
+explicitly authorize the workflow's `publish` operation. Do not merely dispatch
+`publish` expecting it to package arbitrary new source. Keep tags/bytes immutable.
 
-`matlab-viz-publishing.txt` is a user-owned local file. It is explicitly excluded
-from both Git and future VSIX builds. It must not be staged, read into logs,
-uploaded as an artifact or copied into documentation. Existing credential-free
-release bytes remain unchanged. Keep credentials in secure storage; Git ignore
-rules are not encryption or protection from local access or backups.
+## Credential and local-document safety
 
-The maintainer's local namespace-approval PDF is preserved untracked. Ownership
-was confirmed through the live issue and namespace API, not by copying the PDF
-into public release assets. Ownership-snapshot PDFs are excluded from future
-VSIX packages; they are not extension runtime documentation.
+`matlab-viz-publishing.txt` is user-owned and excluded from Git and VSIX packaging.
+It was not read, staged or uploaded. After revoking its obsolete token, remove
+or sanitize the token value locally if desired; user-owned notes are not deleted
+without permission. Ignore rules are not encryption.
+
+The user-provided ownership PDF is preserved untracked and excluded from VSIX
+builds. Ownership was confirmed through the live issue/namespace API, not by
+publishing the local PDF.
+
+Official reference: [Open VSX trusted publishing](https://github.com/eclipse-openvsx/openvsx/wiki/Trusted-Publishing).
